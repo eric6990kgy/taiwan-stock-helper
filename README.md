@@ -5,6 +5,11 @@ system for tracking Taiwan-market individual stock positions and a global
 ETF / robo-invest allocation. See the architecture review (chat history /
 PRD) for full product scope. This README tracks what's actually built.
 
+See [`docs/Personal_Investment_OS_Integration_Report.pdf`](docs/Personal_Investment_OS_Integration_Report.pdf)
+for the research-only comparison against six external Taiwan-stock/quant
+GitHub projects that informed the Phase 6 priority ranking (institutional
+flow, margin trading, monthly revenue, technical indicators).
+
 ## Status: Phase 6 complete — Taiwan Chip Data + Technical Analysis
 
 Full stack usable end-to-end from a browser. Beyond price/fundamentals/
