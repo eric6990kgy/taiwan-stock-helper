@@ -105,4 +105,15 @@ export const handlers = [
   http.post(`${API_URL}/api/transactions`, () =>
     HttpResponse.json({ detail: "Cannot sell 999 units of asset 4: only 3.0000 available." }, { status: 400 }),
   ),
+  http.post(`${API_URL}/api/market-data/update`, () =>
+    HttpResponse.json({
+      status: "completed",
+      assets_processed: 7,
+      succeeded: ["3653", "3533", "3491", "3515", "3563", "3551", "3483"],
+      failed: [],
+      validation_warnings: [],
+      latest_data_date: "2026-08-28",
+      source: "FINMIND",
+    }),
+  ),
 ];

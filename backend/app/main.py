@@ -9,8 +9,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.analytics.exceptions import InsufficientSharesError, MixedPositionError
-from app.api.routes import accounts, analytics, assets, import_export, portfolio, research, screener, thesis, transactions, watchlist
-from app.providers.market_data_provider import AssetNotFoundError
+from app.api.routes import (
+    accounts,
+    analytics,
+    assets,
+    import_export,
+    market_data,
+    portfolio,
+    research,
+    screener,
+    thesis,
+    transactions,
+    watchlist,
+)
+from app.providers.market_data_provider import AssetNotFoundError, ProviderError, RateLimitError
 from app.services.exceptions import DuplicateError, InvalidAmountError, NotFoundError, UnsupportedCurrencyError
 
 app = FastAPI(title="Personal Investment OS API", version="0.1.0")
@@ -51,6 +63,18 @@ async def bad_request_handler(request: Request, exc: Exception):
     return _error(400, str(exc))
 
 
+@app.exception_handler(RateLimitError)
+async def rate_limit_handler(request: Request, exc: RateLimitError):
+    return _error(429, str(exc))
+
+
+@app.exception_handler(ProviderError)
+async def provider_error_handler(request: Request, exc: ProviderError):
+    # 502: the request to us was fine, but our upstream (FinMind) failed --
+    # never surfaced as a bare 500, per Sec.39's "clear errors" principle.
+    return _error(502, str(exc))
+
+
 for router in (
     accounts.router,
     assets.router,
@@ -62,6 +86,7 @@ for router in (
     analytics.router,
     screener.router,
     import_export.router,
+    market_data.router,
 ):
     app.include_router(router)
 

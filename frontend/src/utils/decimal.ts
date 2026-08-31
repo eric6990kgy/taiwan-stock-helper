@@ -50,6 +50,17 @@ export function formatShares(value: string | null | undefined): string {
   return s;
 }
 
+/** Thousands-grouped whole-number formatting for share/lot counts that the
+ * backend serializes as plain JSON integers (institutional flow, margin
+ * trading) rather than DecimalStr -- pure digit grouping, not arithmetic. */
+export function formatInteger(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const negative = value < 0;
+  const digits = Math.abs(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = negative ? "-" : "";
+  return `${sign}${digits}`;
+}
+
 export type Sign = "positive" | "negative" | "neutral";
 
 export function signOf(value: string | null | undefined): Sign {
@@ -57,6 +68,13 @@ export function signOf(value: string | null | undefined): Sign {
   const d = new Decimal(value);
   if (d.gt(0)) return "positive";
   if (d.lt(0)) return "negative";
+  return "neutral";
+}
+
+export function signOfNumber(value: number | null | undefined): Sign {
+  if (value === null || value === undefined) return "neutral";
+  if (value > 0) return "positive";
+  if (value < 0) return "negative";
   return "neutral";
 }
 

@@ -216,9 +216,97 @@ export interface ScreenerResult {
   revenue_growth_yoy: string | null;
   roe: string | null;
   pe_ratio: string | null;
+  foreign_net_buy: number | null;
+  rsi_14: string | null;
+  above_sma_20: boolean | null;
   meets_criteria: boolean;
 }
 
 export interface ApiError {
   detail: string;
+}
+
+// ---- Phase 6: institutional flow / margin trading / monthly revenue / technical ---
+
+/** Buy/sell/net figures are in shares. `foreign` combines FinMind's
+ * Foreign_Investor + Foreign_Dealer_Self categories; `dealer` combines
+ * Dealer_self + Dealer_Hedging (see the backend's InstitutionalFlowDTO). */
+export interface InstitutionalFlow {
+  date: string;
+  foreign_buy: number | null;
+  foreign_sell: number | null;
+  foreign_net: number | null;
+  investment_trust_buy: number | null;
+  investment_trust_sell: number | null;
+  investment_trust_net: number | null;
+  dealer_buy: number | null;
+  dealer_sell: number | null;
+  dealer_net: number | null;
+  total_net: number | null;
+  source: string;
+}
+
+/** All fields are in 張 (board lots, 1 lot = 1,000 shares). */
+export interface MarginTrading {
+  date: string;
+  margin_buy: number | null;
+  margin_sell: number | null;
+  margin_cash_repayment: number | null;
+  margin_balance: number | null;
+  short_sale_buy: number | null;
+  short_sale_sell: number | null;
+  short_sale_cash_repayment: number | null;
+  short_sale_balance: number | null;
+  source: string;
+}
+
+/** yoy_growth/mom_growth are computed by the backend on read -- null means
+ * the comparison period is missing or would divide by zero, never a fake 0%. */
+export interface MonthlyRevenue {
+  revenue_year: number;
+  revenue_month: number;
+  revenue: string;
+  yoy_growth: string | null;
+  mom_growth: string | null;
+  announcement_date: string | null;
+  source: string;
+}
+
+export interface TechnicalIndicatorValues {
+  sma_5: string | null;
+  sma_20: string | null;
+  ema_20: string | null;
+  rsi_14: string | null;
+  macd: string | null;
+  macd_signal: string | null;
+  macd_histogram: string | null;
+  bollinger_upper: string | null;
+  bollinger_middle: string | null;
+  bollinger_lower: string | null;
+  kd_k: string | null;
+  kd_d: string | null;
+}
+
+export interface TechnicalIndicators {
+  ticker: string;
+  as_of: string | null;
+  indicators: TechnicalIndicatorValues;
+  source: string;
+}
+
+// ---- Market Data (Phase 5B) -------------------------------------------------
+
+export interface MarketDataUpdateError {
+  ticker: string;
+  reason: string;
+}
+
+export interface MarketDataUpdateResult {
+  status: "completed" | "rate_limited";
+  assets_processed: number;
+  succeeded: string[];
+  failed: MarketDataUpdateError[];
+  validation_warnings: MarketDataUpdateError[];
+  latest_data_date: string | null;
+  source: string;
 }

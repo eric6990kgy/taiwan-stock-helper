@@ -11,7 +11,14 @@ class PriceHistory(Base):
     TRANSACTION_BASED assets (quantity x latest close) and, for
     MANUAL_MARKET_VALUE assets, is the manually-entered *total position value*
     itself (see Asset.valuation_method). `source` records provenance
-    ('MOCK', 'MANUAL', or a real provider name in future versions)."""
+    ('MOCK', 'MANUAL', 'FINMIND', or a future provider name).
+
+    pe_ratio/pb_ratio/dividend_yield live here (Phase 5B), not in
+    `fundamentals` -- they change daily with price, same grain as this row
+    (one per asset/date), whereas `fundamentals` is keyed by reporting
+    period. Putting them there would have conflated two different time
+    cardinalities (Phase 5 Discovery Report, Sec.7).
+    """
 
     __tablename__ = "price_history"
 
@@ -22,7 +29,12 @@ class PriceHistory(Base):
     high: Mapped[Numeric | None] = mapped_column(Numeric(18, 4), nullable=True)
     low: Mapped[Numeric | None] = mapped_column(Numeric(18, 4), nullable=True)
     close: Mapped[Numeric] = mapped_column(Numeric(18, 4), nullable=False)
+    adjusted_close: Mapped[Numeric | None] = mapped_column(Numeric(18, 4), nullable=True)
     volume: Mapped[int | None] = mapped_column(nullable=True)
+    trading_value: Mapped[Numeric | None] = mapped_column(Numeric(24, 4), nullable=True)
+    pe_ratio: Mapped[Numeric | None] = mapped_column(Numeric(12, 4), nullable=True)
+    pb_ratio: Mapped[Numeric | None] = mapped_column(Numeric(12, 4), nullable=True)
+    dividend_yield: Mapped[Numeric | None] = mapped_column(Numeric(9, 4), nullable=True)
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="MOCK")
 
     asset: Mapped["Asset"] = relationship(back_populates="price_history")

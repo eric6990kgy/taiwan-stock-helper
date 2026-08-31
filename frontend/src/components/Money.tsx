@@ -1,4 +1,4 @@
-import { formatCurrency, formatPercent, formatShares, SIGN_TEXT_CLASS, signOf } from "../utils/decimal";
+import { formatCurrency, formatInteger, formatPercent, formatShares, SIGN_TEXT_CLASS, signOf, signOfNumber } from "../utils/decimal";
 
 interface MoneyProps {
   value: string | null | undefined;
@@ -27,4 +27,18 @@ export function Percent({ value, decimals = 2, colorBySign = true, className = "
 
 export function Shares({ value, className = "" }: { value: string | null | undefined; className?: string }) {
   return <span className={`tabular-nums ${className}`}>{formatShares(value)}</span>;
+}
+
+interface CountProps {
+  value: number | null | undefined;
+  colorBySign?: boolean;
+  className?: string;
+}
+
+/** Thousands-grouped plain-integer display (institutional-flow shares,
+ * margin-trading 張/lots) -- backend fields that come over the wire as
+ * native JSON numbers rather than DecimalStr. */
+export function Count({ value, colorBySign = false, className = "" }: CountProps) {
+  const colorClass = colorBySign ? SIGN_TEXT_CLASS[signOfNumber(value)] : "";
+  return <span className={`tabular-nums ${colorClass} ${className}`}>{formatInteger(value)}</span>;
 }

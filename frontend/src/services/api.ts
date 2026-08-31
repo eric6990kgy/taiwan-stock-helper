@@ -3,12 +3,17 @@ import type {
   Allocation,
   Asset,
   Holding,
+  InstitutionalFlow,
+  MarginTrading,
+  MarketDataUpdateResult,
+  MonthlyRevenue,
   Performance,
   PortfolioSummary,
   PricePoint,
   ResearchPage,
   Risk,
   ScreenerResult,
+  TechnicalIndicators,
   Thesis,
   Transaction,
   WatchlistEntry,
@@ -43,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function qs(params: Record<string, string | number | undefined | null>): string {
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "");
   if (entries.length === 0) return "";
   return "?" + entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
@@ -107,6 +112,14 @@ export const researchApi = {
   page: (ticker: string) => request<ResearchPage>(`/api/research/${encodeURIComponent(ticker)}`),
   prices: (ticker: string, range?: string) =>
     request<PricePoint[]>(`/api/prices/${encodeURIComponent(ticker)}${qs({ range })}`),
+  institutionalFlows: (ticker: string, range?: string) =>
+    request<InstitutionalFlow[]>(`/api/research/${encodeURIComponent(ticker)}/institutional${qs({ range })}`),
+  marginTrading: (ticker: string, range?: string) =>
+    request<MarginTrading[]>(`/api/research/${encodeURIComponent(ticker)}/margin${qs({ range })}`),
+  monthlyRevenue: (ticker: string) =>
+    request<MonthlyRevenue[]>(`/api/research/${encodeURIComponent(ticker)}/revenue`),
+  technicalIndicators: (ticker: string, asOf?: string) =>
+    request<TechnicalIndicators>(`/api/research/${encodeURIComponent(ticker)}/technical${qs({ as_of: asOf })}`),
 };
 
 // ---- Watchlist ------------------------------------------------------------------
@@ -147,6 +160,19 @@ export const analyticsApi = {
 // ---- Screener -------------------------------------------------------------------
 
 export const screenerApi = {
-  screen: (params: { revenue_growth_gt?: number; roe_gt?: number; pe_lt?: number }) =>
-    request<ScreenerResult[]>(`/api/screener${qs(params)}`),
+  screen: (params: {
+    revenue_growth_gt?: number;
+    roe_gt?: number;
+    pe_lt?: number;
+    foreign_net_buy_gt?: number;
+    rsi_lt?: number;
+    rsi_gt?: number;
+    above_sma_20?: boolean;
+  }) => request<ScreenerResult[]>(`/api/screener${qs(params)}`),
+};
+
+// ---- Market Data (Phase 5B) -------------------------------------------------
+
+export const marketDataApi = {
+  update: () => request<MarketDataUpdateResult>("/api/market-data/update", { method: "POST" }),
 };

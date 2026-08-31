@@ -3,15 +3,17 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
-      "port": 8000
+      "runtimeExecutable": "C:\\Users\\user\\Desktop\\台股小白幫幫忙\\backend\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["C:\\Users\\user\\Desktop\\台股小白幫幫忙\\backend\\run_dev.py"],
+      "port": 8010,
+      "autoPort": true
     },
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "--host", "127.0.0.1", "--port", "5173"],
-      "port": 5173
+      "runtimeArgs": ["run", "dev", "--prefix", "C:\\Users\\user\\Desktop\\台股小白幫幫忙\\frontend"],
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

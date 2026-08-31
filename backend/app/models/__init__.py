@@ -8,6 +8,10 @@ from app.models.thesis import InvestmentThesis
 from app.models.price_history import PriceHistory
 from app.models.fundamentals import Fundamentals
 from app.models.fx_rate import FxRate
+from app.models.dividend import Dividend
+from app.models.institutional_flow import InstitutionalFlow
+from app.models.margin_trading import MarginTrading
+from app.models.monthly_revenue import MonthlyRevenue
 
 __all__ = [
     "Base",
@@ -20,4 +24,8 @@ __all__ = [
     "PriceHistory",
     "Fundamentals",
     "FxRate",
+    "Dividend",
+    "InstitutionalFlow",
+    "MarginTrading",
+    "MonthlyRevenue",
 ]

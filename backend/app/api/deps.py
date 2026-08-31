@@ -10,12 +10,14 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.database.session import SessionLocal
+from app.providers.finmind_provider import FinMindProvider
 from app.providers.market_data_provider import MarketDataProvider
 from app.providers.mock_provider import MockMarketDataProvider
 from app.services.account_service import AccountService
 from app.services.analytics_service import AnalyticsService
 from app.services.asset_service import AssetService
 from app.services.import_export_service import ImportExportService
+from app.services.market_data_service import MarketDataIngestionService
 from app.services.portfolio_service import PortfolioService
 from app.services.research_service import ResearchService
 from app.services.screener_service import ScreenerService
@@ -81,3 +83,20 @@ def get_screener_service(
 
 def get_import_export_service(db: Session = Depends(get_db)) -> ImportExportService:
     return ImportExportService(db)
+
+
+def get_finmind_provider() -> Generator[FinMindProvider, None, None]:
+    """Distinct from get_market_data_provider() -- that one (Mock) serves
+    every ordinary read in the app from the local DB. This one is used
+    *only* by the manual ingestion endpoint to actually reach FinMind."""
+    provider = FinMindProvider()
+    try:
+        yield provider
+    finally:
+        provider.close()
+
+
+def get_market_data_service(
+    db: Session = Depends(get_db), provider: FinMindProvider = Depends(get_finmind_provider)
+) -> MarketDataIngestionService:
+    return MarketDataIngestionService(db, provider)

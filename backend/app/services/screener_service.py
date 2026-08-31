@@ -8,6 +8,7 @@ in the Phase 1 schema — adding it wasn't part of this phase's scope, and
 inventing the number would be worse than refusing the filter.
 """
 
+from app.analytics import technical
 from app.providers.market_data_provider import AssetNotFoundError, MarketDataProvider
 from app.repositories.asset_repository import AssetRepository
 from app.schemas.screener import ScreenerResult
@@ -37,6 +38,10 @@ class ScreenerService:
         pe_lt=None,
         market_cap_gt=None,
         dividend_yield_gt=None,
+        foreign_net_buy_gt=None,
+        rsi_lt=None,
+        rsi_gt=None,
+        above_sma_20=None,
     ) -> list[ScreenerResult]:
         if market_cap_gt is not None or dividend_yield_gt is not None:
             raise ValueError(
@@ -60,11 +65,22 @@ class ScreenerService:
             growth_pct = _revenue_growth_yoy(fundamentals)
             growth_pct = (growth_pct * 100) if growth_pct is not None else None
 
+            foreign_net_buy = _latest_foreign_net_buy(self.market_data, asset.ticker)
+            rsi_14, above_sma20_flag = _latest_rsi_and_sma_flag(self.market_data, asset.ticker)
+
             if revenue_growth_gt is not None and (growth_pct is None or growth_pct <= revenue_growth_gt):
                 continue
             if roe_gt is not None and (roe_pct is None or roe_pct <= roe_gt):
                 continue
             if pe_lt is not None and (pe_ratio is None or pe_ratio >= pe_lt):
+                continue
+            if foreign_net_buy_gt is not None and (foreign_net_buy is None or foreign_net_buy <= foreign_net_buy_gt):
+                continue
+            if rsi_lt is not None and (rsi_14 is None or rsi_14 >= rsi_lt):
+                continue
+            if rsi_gt is not None and (rsi_14 is None or rsi_14 <= rsi_gt):
+                continue
+            if above_sma_20 is not None and (above_sma20_flag is None or above_sma20_flag != above_sma_20):
                 continue
 
             results.append(
@@ -74,7 +90,38 @@ class ScreenerService:
                     revenue_growth_yoy=growth_pct,
                     roe=roe_pct,
                     pe_ratio=pe_ratio,
+                    foreign_net_buy=foreign_net_buy,
+                    rsi_14=rsi_14,
+                    above_sma_20=above_sma20_flag,
                     meets_criteria=True,
                 )
             )
         return results
+
+
+def _latest_foreign_net_buy(market_data: MarketDataProvider, ticker: str) -> int | None:
+    try:
+        flows = market_data.get_institutional_flows(ticker)
+    except AssetNotFoundError:
+        return None
+    return flows[-1].foreign_net if flows else None
+
+
+def _latest_rsi_and_sma_flag(market_data: MarketDataProvider, ticker: str):
+    try:
+        points = market_data.get_historical_prices(ticker)
+    except AssetNotFoundError:
+        return None, None
+    if not points:
+        return None, None
+
+    points = sorted(points, key=lambda p: p.date)
+    closes = [p.close for p in points]
+    highs = [p.high if p.high is not None else p.close for p in points]
+    lows = [p.low if p.low is not None else p.close for p in points]
+    snapshot = technical.latest_snapshot(closes, highs, lows)
+
+    rsi_14 = snapshot["rsi_14"]
+    sma_20 = snapshot["sma_20"]
+    above_sma_20 = (closes[-1] > sma_20) if sma_20 is not None else None
+    return rsi_14, above_sma_20

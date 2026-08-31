@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
 import { DemoDataBadge, ThesisStatusBadge } from "../components/Badges";
 import { Field, inputClass, PrimaryButton, SecondaryButton } from "../components/form";
+import { InstitutionalFlowPanel } from "../components/InstitutionalFlowPanel";
+import { MarginTradingPanel } from "../components/MarginTradingPanel";
 import { Money, Percent } from "../components/Money";
+import { MonthlyRevenuePanel } from "../components/MonthlyRevenuePanel";
 import { PriceChart } from "../components/PriceChart";
 import { QueryState } from "../components/QueryState";
+import { TechnicalIndicatorsPanel } from "../components/TechnicalIndicatorsPanel";
 import { useAssets } from "../features/transactions/hooks";
-import { usePrices, useResearchPage, useUpsertThesis } from "../features/research/hooks";
+import {
+  useInstitutionalFlows,
+  useMarginTrading,
+  useMonthlyRevenue,
+  usePrices,
+  useResearchPage,
+  useTechnicalIndicators,
+  useUpsertThesis,
+} from "../features/research/hooks";
 import { ApiRequestError } from "../services/api";
 import type { ThesisStatus } from "../types/api";
 
@@ -25,6 +37,10 @@ export function Research() {
 
   const researchQuery = useResearchPage(ticker);
   const pricesQuery = usePrices(ticker, range);
+  const technicalQuery = useTechnicalIndicators(ticker);
+  const institutionalQuery = useInstitutionalFlows(ticker);
+  const marginQuery = useMarginTrading(ticker);
+  const revenueQuery = useMonthlyRevenue(ticker);
 
   return (
     <div className="flex flex-col gap-6">
@@ -106,6 +122,54 @@ export function Research() {
                 emptyTitle="No price history for this range."
               >
                 {(points) => <PriceChart points={points} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Technical Indicators</h2>
+              <QueryState
+                isLoading={technicalQuery.isLoading}
+                isError={technicalQuery.isError}
+                error={technicalQuery.error}
+                data={technicalQuery.data}
+              >
+                {(data) => <TechnicalIndicatorsPanel data={data} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Institutional Flow (三大法人)</h2>
+              <QueryState
+                isLoading={institutionalQuery.isLoading}
+                isError={institutionalQuery.isError}
+                error={institutionalQuery.error}
+                data={institutionalQuery.data}
+              >
+                {(flows) => <InstitutionalFlowPanel flows={flows} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Margin Trading (融資融券)</h2>
+              <QueryState
+                isLoading={marginQuery.isLoading}
+                isError={marginQuery.isError}
+                error={marginQuery.error}
+                data={marginQuery.data}
+              >
+                {(rows) => <MarginTradingPanel rows={rows} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Monthly Revenue (月營收)</h2>
+              <QueryState
+                isLoading={revenueQuery.isLoading}
+                isError={revenueQuery.isError}
+                error={revenueQuery.error}
+                data={revenueQuery.data}
+              >
+                {(rows) => <MonthlyRevenuePanel rows={rows} />}
               </QueryState>
             </section>
 

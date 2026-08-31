@@ -5,10 +5,41 @@ system for tracking Taiwan-market individual stock positions and a global
 ETF / robo-invest allocation. See the architecture review (chat history /
 PRD) for full product scope. This README tracks what's actually built.
 
-## Status: Phase 4 complete — Frontend Dashboard
+## Status: Phase 6 complete — Taiwan Chip Data + Technical Analysis
 
-Full stack is now usable end-to-end from a browser: React frontend →
-FastAPI backend → SQLite, seeded with demo data.
+Full stack usable end-to-end from a browser. Beyond price/fundamentals/
+dividends/valuation (Phase 5B), the app now ingests institutional-investor
+flow and margin trading data, populates monthly revenue, and computes a
+deterministic technical-indicator layer (SMA/EMA/RSI/MACD/Bollinger/KD) on
+demand from price history — all exposed on the Research page alongside a
+candlestick + volume chart.
+
+## Market Data
+
+- **Provider**: [FinMind](https://finmind.github.io/) (`backend/app/providers/finmind_provider.py`),
+  chosen after a documented discovery/comparison pass over TWSE/TPEx
+  official OpenAPIs, Fugle, Yahoo Finance/yfinance, TEJ, and CMoney (see the
+  Phase 5 Discovery Report in project history for the full comparison and
+  reasoning). Official TWSE/TPEx OpenAPI access is the documented fallback
+  if FinMind ever becomes unavailable.
+- **Data-use constraint**: FinMind's own project terms restrict the *data*
+  (not the client code, which is Apache-2.0) to educational/non-commercial
+  use. **This app is personal, single-user, and non-commercial — do not
+  add any feature that redistributes or monetizes data pulled through this
+  integration** without first revisiting FinMind's terms directly.
+- **How to update data**: Settings → "Update Market Data" (manual only —
+  no daily cron job in this phase). Pulls prices, fundamentals, dividends,
+  valuation ratios (P/E, P/B, dividend yield), institutional flow, margin
+  trading, and monthly revenue for every STOCK/ETF asset; a seeded demo
+  asset automatically flips `is_demo_data` to `false` the first time real
+  data lands for it, while its old `MOCK`-sourced rows stay in place
+  (distinguished by `source`, never deleted).
+- **Known data-source limitation**: `TaiwanStockMarketValue` (market cap /
+  shares outstanding) requires a paid FinMind tier — the free tier used
+  here returns those fields as `null` rather than failing the whole update.
+- **Optional**: set `FINMIND_API_TOKEN` in `backend/.env` (free registration
+  at finmindtrade.com) to raise the rate limit from 300/hr to 600/hr. Works
+  unauthenticated too, just at the lower limit.
 
 ## Backend setup
 
@@ -124,6 +155,87 @@ npm run build            # production build (tsc -b && vite build)
 - Production build passes (`tsc -b && vite build`); all 133 backend tests
   still green, unmodified.
 
+## What's implemented (Phase 5B)
+
+- **`FinMindProvider`** (`app/providers/finmind_provider.py`): implements
+  the full `MarketDataProvider` interface against FinMind's real API (field
+  mappings verified against live responses, not guessed from docs) — the
+  only file in the codebase that knows FinMind's response shapes.
+- **Interface extended** with `get_dividends()` and `get_valuation()`;
+  `MockMarketDataProvider` (still what every ordinary read in the app uses)
+  implements both from the local DB, so the provider boundary stays clean —
+  no FinMind-specific structures leak into services or repositories.
+- **Schema**: `dividends` table (market-wide ex-dividend calendar, distinct
+  from a user's own DIVIDEND transactions); `price_history` gained
+  `adjusted_close`, `trading_value`, `pe_ratio`, `pb_ratio`, `dividend_yield`;
+  `assets` gained `shares_outstanding` and `listing_status`.
+- **`MarketDataIngestionService`** (`app/services/market_data_service.py`):
+  the manual half of the hybrid ingestion architecture (Settings → API →
+  FinMind → validation → normalization → repositories → SQLite). One
+  ticker failing never aborts the batch; a rate-limit stops fetching more
+  but explicitly reports every remaining ticker as skipped, never a silent
+  drop; re-ingesting the same date/period/ex-dividend-date upserts instead
+  of duplicating.
+- **Validation** (`app/services/market_data_validation.py`): OHLC sanity
+  checks applied before every DB write, independent of `app.analytics`.
+- **Settings UI**: "Update Market Data" button showing status, assets
+  processed, succeeded/failed tickers with reasons, validation warnings,
+  latest data date, and source.
+- **62 new tests** (56 backend, bringing the backend total to 193; 6
+  frontend, bringing the frontend total to 41 — 234 tests overall).
+
+## What's implemented (Phase 6)
+
+- **Institutional flow** (`institutional_flows` table): daily 三大法人
+  buy/sell/net in shares, keyed by `(asset, date)`. FinMind's five raw
+  categories (`Foreign_Investor`, `Foreign_Dealer_Self`, `Investment_Trust`,
+  `Dealer_self`, `Dealer_Hedging`) are grouped into the conventional
+  three-way foreign/investment-trust/dealer split — see
+  `InstitutionalFlowDTO`'s docstring for exactly how, and note that a bucket
+  missing one of its categories comes back `None` rather than a partial sum.
+- **Margin trading** (`margin_trading` table): daily 融資融券, keyed by
+  `(asset, date)`. **All fields are in 張 (board lots, 1,000 shares)**,
+  confirmed against FinMind's live API by cross-checking against TWSE's own
+  published 融資餘額 for the same ticker/date (see `MarginTradingDTO`'s
+  docstring) — do not assume shares.
+- **Monthly revenue** (`monthly_revenue` table): keyed by `(asset,
+  revenue_year, revenue_month)` — the *covered* month, not FinMind's `date`
+  field (which is the announcement month). YoY/MoM growth is computed on
+  read (`ResearchService._revenue_growth`), never persisted; `None` when the
+  comparison period is missing or would divide by zero, never a fake 0%.
+- **Technical indicators** (`app/analytics/technical.py`): SMA, EMA,
+  Wilder's RSI, MACD, Bollinger Bands, Taiwan-convention KD (2/3-previous +
+  1/3-new smoothing, not the textbook stochastic), and ATR (implemented, not
+  yet wired into the API response). Pure functions — no DB/HTTP/FastAPI
+  imports, enforced by an automated test
+  (`tests/unit/test_analytics_independence.py`), same independence
+  guarantee as the Phase 2 calculation engine. Every function is
+  index-aligned and look-ahead-safe: `result[i]` depends only on
+  `input[0..i]`, verified by a dedicated no-look-ahead test per indicator.
+  Computed on demand from `price_history` — no caching table.
+- **Research API extended**: `GET /api/research/{ticker}/institutional`,
+  `/margin`, `/revenue`, and `/technical` (the last accepts an optional
+  `as_of` date to compute indicators as of a historical date, still without
+  look-ahead). Every response carries `source` (`FINMIND` or `CALCULATED`)
+  so a calculated indicator is never presented as if it came from the data
+  provider.
+- **Screener extended**: `foreign_net_buy_gt`, `rsi_lt`/`rsi_gt`, and
+  `above_sma_20` filters, alongside `foreign_net_buy`/`rsi_14`/`above_sma_20`
+  fields on every result. `None` (not a fabricated value) whenever the
+  underlying data isn't there yet.
+- **Ingestion extended**: `MarketDataIngestionService` gained three more
+  best-effort blocks (institutional/margin/revenue), same pattern as
+  fundamentals/dividends — one dataset failing never blocks the others, and
+  `RateLimitError` still stops the whole batch rather than being absorbed as
+  a per-ticker warning.
+- **Research page**: candlestick + volume chart (`lightweight-charts`,
+  replacing the Phase 4 line chart), plus new Technical Indicators,
+  Institutional Flow, and Margin Trading/Monthly Revenue sections — all
+  reachable from the existing ticker selector, no navigation changes.
+- **88 new backend tests** (bringing the total to 281) and **12 new
+  frontend tests** (bringing the total to 53 — 334 overall). New Alembic
+  migration (`b1e14c304976`) verified from a clean DB.
+
 ## Key architectural decisions locked in this phase
 
 - **Positions are derived per `(account_id, asset_id)`**, never stored
@@ -143,8 +255,21 @@ npm run build            # production build (tsc -b && vite build)
 
 ## Not built yet
 
-Live market data (Mock only), AI/notifications/trading of any kind,
-historical time-series performance, market-cap/dividend-yield screener
-filters, CSV import/export UI (the endpoints exist, no frontend for them
-yet), account creation/editing UI. See the architecture review's Phase
-5–10 plan and the Phase 4 report's "known limitations" for specifics.
+No scheduled/automatic market-data ingestion (manual "Update Market Data"
+only), AI/notifications/trading of any kind, historical time-series
+performance, market-cap/dividend-yield screener filters (schema now has
+`shares_outstanding`, but the free FinMind tier can't populate it), CSV
+import/export UI (the endpoints exist, no frontend for them yet), account
+creation/editing UI. Fubon Nano Investment has no official API/export/Open
+Banking path (confirmed in the Phase 5 Discovery Report) — its holdings are
+tracked via the existing `MANUAL_MARKET_VALUE` pattern, same as the Global
+ETF fund.
+
+As of Phase 6: no composite/regime-aware scoring, no signal engine, no
+alerts/notifications, no backtesting, no AI research/narrative layer, no
+MOPS material-announcement data (FinMind doesn't have this dataset — needs
+a second provider against TWSE/TPEx's own OpenAPI, per the Phase 5
+Discovery Report's documented fallback), no real-time data, no securities
+lending/industry-chain/ETF-specific datasets. See the Phase 6 report in
+project history for the full priority ranking and rationale for what's
+deferred and why.
