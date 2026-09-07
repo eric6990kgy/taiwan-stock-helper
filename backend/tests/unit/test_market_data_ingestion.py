@@ -298,6 +298,30 @@ def test_valuation_is_written_onto_the_latest_price_history_row(db_session):
     assert row.dividend_yield == Decimal("0.03")
 
 
+def test_valuation_for_a_date_with_no_price_history_row_warns_instead_of_crashing(db_session):
+    """Regression test: valuation.date can lag latest_written (the provider's
+    PER data can trail its price data) -- if that earlier date never got its
+    own price_history row, upserting ratios onto it must not create a row
+    missing the required `close` column."""
+    asset = make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+    provider.valuations["3653"] = ValuationDTO(
+        date=date(2026, 8, 20), pe_ratio=Decimal("15.5"), pb_ratio=Decimal("2.1"), dividend_yield=Decimal("0.03"),
+        market_cap=None, shares_outstanding=None, source="FINMIND",
+    )
+
+    service = MarketDataIngestionService(db_session, provider)
+    result = service.update_all(tickers=["3653"])
+
+    assert "3653" in result.succeeded
+    assert any("2026-08-20" in w.reason for w in result.validation_warnings)
+    # No stray incomplete row was created for the un-attachable valuation date.
+    assert db_session.query(PriceHistory).filter_by(asset_id=asset.id, date=date(2026, 8, 20)).count() == 0
+    # The actual price row from this ingestion is unaffected.
+    assert db_session.query(PriceHistory).filter_by(asset_id=asset.id, date=date(2026, 8, 28)).one().close == Decimal("650")
+
+
 def test_valuation_shares_outstanding_updates_asset_when_provider_has_it(db_session):
     asset = make_asset(db_session)
     provider = FakeProvider()

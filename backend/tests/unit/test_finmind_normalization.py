@@ -163,7 +163,19 @@ def test_get_quote_normalizes_latest_row():
     assert quote.ticker == "2330"
     assert quote.price == Decimal("2420.0")
     assert quote.as_of == date(2026, 8, 28)
-    assert quote.high_52w == Decimal("2420.0")
+    # 52w range uses the real intraday high/low ("max"/"min"), not just
+    # closing prices -- day1 max=2435/min=2410, day2 max=2445/min=2410.
+    assert quote.high_52w == Decimal("2445.0")
+    assert quote.low_52w == Decimal("2410.0")
+
+
+def test_get_quote_falls_back_to_close_when_max_min_missing():
+    rows = [
+        {"date": "2026-08-27", "stock_id": "2330", "Trading_Volume": 1, "Trading_money": 1, "close": 2410.0},
+    ]
+    provider = make_provider(dataset_router({"TaiwanStockPrice": rows}))
+    quote = provider.get_quote("2330")
+    assert quote.high_52w == Decimal("2410.0")
     assert quote.low_52w == Decimal("2410.0")
 
 
@@ -190,6 +202,14 @@ def test_get_historical_prices_maps_finmind_field_names():
     assert first.volume == 19214481  # FinMind calls this "Trading_Volume"
     assert first.trading_value == Decimal("46545167227")  # FinMind calls this "Trading_money"
     assert first.source == "FINMIND"
+
+
+def test_get_historical_prices_sorts_rows_even_if_finmind_returns_them_out_of_order():
+    reversed_rows = list(reversed(PRICE_ROWS))
+    provider = make_provider(dataset_router({"TaiwanStockPrice": reversed_rows}))
+    points = provider.get_historical_prices("2330")
+
+    assert [p.date for p in points] == [date(2026, 8, 27), date(2026, 8, 28)]
 
 
 # ---- get_company_info ---------------------------------------------------------
@@ -250,6 +270,17 @@ def test_get_valuation_handles_free_tier_market_cap_denial_gracefully():
     assert valuation.pe_ratio == Decimal("28.05")  # PER data still comes through
     assert valuation.market_cap is None  # gracefully absent, not an exception
     assert valuation.shares_outstanding is None
+
+
+def test_get_valuation_market_cap_rate_limit_propagates_not_swallowed():
+    """A 402 on the TaiwanStockMarketValue sub-call must still stop the
+    whole ingestion batch -- it must not be caught by the same handler that
+    tolerates the paid-tier-denial 400 case."""
+    rate_limited = {"msg": "Requests reach the upper limit.", "status": 402, "token_tail": ""}
+    provider = make_provider(dataset_router({"TaiwanStockPER": PER_ROWS, "TaiwanStockMarketValue": rate_limited}))
+
+    with pytest.raises(RateLimitError):
+        provider.get_valuation("2330")
 
 
 def test_get_valuation_unknown_ticker_raises():
@@ -316,6 +347,29 @@ def test_get_fundamentals_missing_balance_sheet_still_returns_income_derived_fie
     assert f.debt_ratio is None
     assert f.operating_cash_flow is None
     assert f.free_cash_flow is None
+
+
+def test_get_fundamentals_real_zero_cash_flow_is_not_replaced_by_alternate_tag():
+    """A genuine zero operating cash flow must not be silently replaced by
+    an unrelated alternate-taxonomy figure -- missing data != zero, but a
+    real zero also != missing."""
+    cash_flow_with_real_zero = [
+        {"date": "2026-03-31", "stock_id": "2330", "type": "CashFlowsFromOperatingActivities", "value": 0.0},
+        {"date": "2026-03-31", "stock_id": "2330", "type": "NetCashInflowFromOperatingActivities", "value": 999999.0},
+        {"date": "2026-03-31", "stock_id": "2330", "type": "PropertyAndPlantAndEquipment", "value": -100.0},
+    ]
+    provider = make_provider(
+        dataset_router(
+            {
+                "TaiwanStockFinancialStatements": FINANCIAL_STATEMENT_ROWS,
+                "TaiwanStockBalanceSheet": [],
+                "TaiwanStockCashFlowsStatement": cash_flow_with_real_zero,
+            }
+        )
+    )
+    results = provider.get_fundamentals("2330")
+    assert results[0].operating_cash_flow == Decimal("0.0")
+    assert results[0].free_cash_flow == Decimal("0.0") + Decimal("-100.0")
 
 
 def test_get_fundamentals_no_data_returns_empty_list_not_error():
@@ -410,6 +464,29 @@ def test_get_institutional_flows_partial_categories_leave_bucket_and_total_none(
     assert f.dealer_net is None
     # total_net requires all three buckets to avoid understating the total.
     assert f.total_net is None
+
+
+def test_get_institutional_flows_category_present_but_missing_buy_field_leaves_bucket_none():
+    """A category that IS present but whose `buy` field itself is missing
+    must not be silently treated as buy=0 -- that would defeat the bucket
+    completeness check (missing data != zero)."""
+    rows_missing_buy_field = [dict(r) for r in INSTITUTIONAL_ROWS]
+    for r in rows_missing_buy_field:
+        if r["name"] == "Dealer_self":
+            del r["buy"]  # category present, but this one field is missing
+
+    provider = make_provider(dataset_router({"TaiwanStockInstitutionalInvestorsBuySell": rows_missing_buy_field}))
+    flows = provider.get_institutional_flows("2330")
+
+    assert len(flows) == 1
+    f = flows[0]
+    assert f.dealer_buy is None  # not silently 0
+    assert f.dealer_net is None
+    assert f.total_net is None
+    # dealer_sell is unaffected -- only the missing field's bucket is None,
+    # foreign/investment_trust are still fully computable.
+    assert f.foreign_net is not None
+    assert f.investment_trust_net is not None
 
 
 def test_get_institutional_flows_no_data_returns_empty_list():

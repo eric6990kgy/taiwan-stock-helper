@@ -65,8 +65,18 @@ class ScreenerService:
             growth_pct = _revenue_growth_yoy(fundamentals)
             growth_pct = (growth_pct * 100) if growth_pct is not None else None
 
-            foreign_net_buy = _latest_foreign_net_buy(self.market_data, asset.ticker)
-            rsi_14, above_sma20_flag = _latest_rsi_and_sma_flag(self.market_data, asset.ticker)
+            # Only pay for institutional-flow/technical-indicator data when a
+            # filter that actually needs it was requested -- otherwise every
+            # screener call (even one that only passes roe_gt) would fetch
+            # full price/institutional-flow history and recompute all 6
+            # technical indicators for every asset for nothing.
+            foreign_net_buy = None
+            if foreign_net_buy_gt is not None:
+                foreign_net_buy = _latest_foreign_net_buy(self.market_data, asset.ticker)
+
+            rsi_14 = above_sma20_flag = None
+            if rsi_lt is not None or rsi_gt is not None or above_sma_20 is not None:
+                rsi_14, above_sma20_flag = _latest_rsi_and_sma_flag(self.market_data, asset.ticker)
 
             if revenue_growth_gt is not None and (growth_pct is None or growth_pct <= revenue_growth_gt):
                 continue

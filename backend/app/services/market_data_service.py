@@ -143,16 +143,28 @@ class MarketDataIngestionService:
             return latest_written, warnings
 
         # Valuation ratios (PER/PBR/dividend yield, +market cap where the
-        # provider's tier allows it) land on the same price_history row.
+        # provider's tier allows it) land on an *existing* price_history row
+        # -- valuation.date can lag latest_written (the provider's PER data
+        # can trail its price data by a few days), and upserting onto a date
+        # with no row yet would create one missing the required `close`
+        # column. Not having that day's ratios yet is a warning, not a crash.
         try:
             valuation = self.provider.get_valuation(asset.ticker, on_date=latest_written)
-            self.prices.upsert(
-                asset.id,
-                valuation.date,
-                pe_ratio=valuation.pe_ratio,
-                pb_ratio=valuation.pb_ratio,
-                dividend_yield=valuation.dividend_yield,
-            )
+            if self.prices.get_by_asset_and_date(asset.id, valuation.date) is not None:
+                self.prices.upsert(
+                    asset.id,
+                    valuation.date,
+                    pe_ratio=valuation.pe_ratio,
+                    pb_ratio=valuation.pb_ratio,
+                    dividend_yield=valuation.dividend_yield,
+                )
+            else:
+                warnings.append(
+                    MarketDataError(
+                        ticker=asset.ticker,
+                        reason=f"Valuation unavailable: no price_history row for {valuation.date} to attach it to.",
+                    )
+                )
             if valuation.shares_outstanding is not None:
                 self.assets.update(asset, shares_outstanding=valuation.shares_outstanding)
         except RateLimitError:

@@ -61,14 +61,16 @@ export function PriceChart({ points }: PriceChartProps) {
     const candleData: CandlestickData[] = [];
     const volumeData: HistogramData[] = [];
     for (const p of points) {
-      // A row missing open/high/low (e.g. a MANUAL-source point) can't be
-      // drawn as a candle -- skip it rather than fabricating OHLC from close.
-      if (p.open === null || p.high === null || p.low === null) continue;
       const time = p.date as unknown as UTCTimestamp; // 'YYYY-MM-DD' is accepted directly as a business day string
-      const open = Number(p.open);
-      const high = Number(p.high);
-      const low = Number(p.low);
       const close = Number(p.close);
+      // A row missing open/high/low (e.g. a MANUAL-source point, which only
+      // ever carries a close) can't be drawn as a real candle -- rather than
+      // dropping the point (the old line chart plotted every point using
+      // close alone), draw a flat candle at close. That's honest: it shows
+      // the one value actually known, without fabricating an intraday range.
+      const open = p.open !== null ? Number(p.open) : close;
+      const high = p.high !== null ? Number(p.high) : close;
+      const low = p.low !== null ? Number(p.low) : close;
       candleData.push({ time, open, high, low, close });
       if (p.volume !== null) {
         volumeData.push({ time, value: p.volume, color: close >= open ? UP_COLOR : DOWN_COLOR });

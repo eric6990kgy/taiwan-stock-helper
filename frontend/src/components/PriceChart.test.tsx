@@ -59,8 +59,10 @@ describe("PriceChart", () => {
     expect(volumeSeries.setData).toHaveBeenCalledWith([{ time: "2026-08-28", value: 1000, color: "#dc2626" }]);
   });
 
-  it("skips a point missing OHLC (e.g. a MANUAL-source row) instead of fabricating candles", () => {
-    render(<PriceChart points={[point({ open: null, high: null, low: null })]} />);
-    expect(candleSeries.setData).toHaveBeenCalledWith([]);
+  it("draws a flat candle at close for a point missing OHLC (e.g. a MANUAL-source row), never dropping it", () => {
+    render(<PriceChart points={[point({ open: null, high: null, low: null, close: "100.0000" })]} />);
+    expect(candleSeries.setData).toHaveBeenCalledWith([
+      { time: "2026-08-28", open: 100, high: 100, low: 100, close: 100 },
+    ]);
   });
 });

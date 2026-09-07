@@ -157,21 +157,32 @@ class FinMindProvider(MarketDataProvider):
 
         rows = sorted(rows, key=lambda r: r["date"])
         latest = rows[-1]
-        closes = [_to_decimal(r.get("close")) for r in rows]
-        closes = [c for c in closes if c is not None]
+        # Real intraday high/low when FinMind has it ("max"/"min"), falling
+        # back to that day's close only when it doesn't -- matches
+        # MockMarketDataProvider.get_quote's convention, so the two
+        # providers report the same 52w range for the same data.
+        highs = [_to_decimal(r.get("max")) or _to_decimal(r.get("close")) for r in rows]
+        highs = [h for h in highs if h is not None]
+        lows = [_to_decimal(r.get("min")) or _to_decimal(r.get("close")) for r in rows]
+        lows = [l for l in lows if l is not None]
 
         return QuoteDTO(
             ticker=ticker,
             price=_to_decimal(latest["close"]),
             as_of=_to_date(latest["date"]),
-            high_52w=max(closes) if closes else None,
-            low_52w=min(closes) if closes else None,
+            high_52w=max(highs) if highs else None,
+            low_52w=min(lows) if lows else None,
         )
 
     def get_historical_prices(self, ticker: str, start: date | None = None, end: date | None = None) -> list[PricePointDTO]:
         rows = self._request(
             "TaiwanStockPrice", data_id=ticker, start_date=start or DEFAULT_HISTORY_START, end_date=end or date.today()
         )
+        # FinMind's row order for this dataset isn't guaranteed (get_quote,
+        # hitting the same dataset, already defends against this) -- an
+        # unsorted series would break chart libraries that require
+        # ascending-by-time data.
+        rows = sorted(rows, key=lambda r: r["date"])
         return [
             PricePointDTO(
                 date=_to_date(r["date"]),
@@ -229,10 +240,12 @@ class FinMindProvider(MarketDataProvider):
             net_income = income.get("IncomeAfterTaxes")
             total_assets = balance.get("TotalAssets")
             liabilities = balance.get("Liabilities")
-            equity = balance.get("EquityAttributableToOwnersOfParent") or balance.get("Equity")
-            operating_cash_flow = cashflow.get("CashFlowsFromOperatingActivities") or cashflow.get(
-                "NetCashInflowFromOperatingActivities"
-            )
+            equity = balance.get("EquityAttributableToOwnersOfParent")
+            if equity is None:
+                equity = balance.get("Equity")
+            operating_cash_flow = cashflow.get("CashFlowsFromOperatingActivities")
+            if operating_cash_flow is None:
+                operating_cash_flow = cashflow.get("NetCashInflowFromOperatingActivities")
             capex = cashflow.get("PropertyAndPlantAndEquipment")  # signed negative = cash outflow
 
             results.append(
@@ -294,6 +307,8 @@ class FinMindProvider(MarketDataProvider):
             if mv_rows:
                 mv_latest = sorted(mv_rows, key=lambda r: r["date"])[-1]
                 market_cap = _to_decimal(mv_latest.get("market_value"))
+        except RateLimitError:
+            raise  # must still stop the whole ingestion batch, not get absorbed below
         except ProviderError:
             # Documented, expected limitation: TaiwanStockMarketValue requires
             # a paid FinMind tier (Phase 5 Discovery Report Sec.4/15). Not
@@ -320,24 +335,27 @@ class FinMindProvider(MarketDataProvider):
             end_date=end or date.today(),
         )
 
-        by_date: dict[date, dict[str, dict[str, int]]] = {}
+        by_date: dict[date, dict[str, dict[str, int | None]]] = {}
         for r in rows:
             d = _to_date(r.get("date"))
             if d is None:
                 continue
             by_date.setdefault(d, {})[r["name"]] = {
-                "buy": _to_int(r.get("buy")) or 0,
-                "sell": _to_int(r.get("sell")) or 0,
+                "buy": _to_int(r.get("buy")),
+                "sell": _to_int(r.get("sell")),
             }
 
-        def _bucket_sum(categories_by_name: dict[str, dict[str, int]], names: tuple[str, ...], key: str) -> int | None:
-            # Require every category in the bucket to be present -- a bucket
-            # missing one of its categories (e.g. Dealer_Hedging without
-            # Dealer_self) is incomplete, not "zero for the missing part";
-            # summing what's there would silently understate the bucket.
-            if not all(n in categories_by_name for n in names):
+        def _bucket_sum(categories_by_name: dict[str, dict[str, int | None]], names: tuple[str, ...], key: str) -> int | None:
+            # Require every category in the bucket to be present *and* have a
+            # real value for `key` -- a bucket missing one of its categories
+            # (e.g. Dealer_Hedging without Dealer_self), or a category whose
+            # buy/sell field itself came back missing, is incomplete, not
+            # "zero for the missing part"; summing through either case would
+            # silently understate the bucket.
+            values = [categories_by_name.get(n, {}).get(key) for n in names]
+            if any(v is None for v in values):
                 return None
-            return sum(categories_by_name[n][key] for n in names)
+            return sum(values)
 
         results = []
         for d in sorted(by_date):
