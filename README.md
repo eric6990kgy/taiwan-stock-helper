@@ -258,23 +258,85 @@ npm run build            # production build (tsc -b && vite build)
   SQLAlchemy, so it stays reusable by a future rule/signal engine or a
   Claude-based analysis service without restructuring.
 
+## What's implemented (Phase A — Risk Engine + Benchmark)
+
+Implements the risk hard-constraints and benchmark/alpha requirements from
+the **個股訊號引擎規格書** (Individual Stock Signal Engine spec, confirmed
+2026-09-14) — the first slice of the future signal engine the Phase 2
+calculation engine was deliberately kept reusable for (see "Key
+architectural decisions" below). Three new endpoints on `/api/analytics`:
+
+- **`GET /api/analytics/risk`** (extended) — `position_limit_violations` and
+  `sector_limit_violations` now compare each STOCK holding's weight against
+  confirmed hard limits (`position_limit_pct` 15%, `sector_limit_pct` 30%).
+  **Scoped to the individual-stock sleeve only** (`asset_type == "STOCK"`):
+  weight is a fraction of the STOCK-only subtotal, not total net worth — an
+  early version of this weighed against everything including cash and the
+  Global ETF fund, which flagged the *deliberate* passive allocation as a
+  "concentration risk". That's exactly backwards; these limits police the
+  agent's own stock-picking activity, not the account as a whole. See
+  `app/analytics/risk_limits.py` and `tests/api/test_analytics.py`'s
+  regression test for this.
+- **`GET /api/analytics/drawdown`** — portfolio drawdown-from-peak vs. the
+  confirmed two-tier circuit breaker (`-15%` → `PAUSE_NEW_POSITIONS`, `-25%`
+  → `HARD_STOP`). Reconstructs a full equity curve retroactively from
+  existing `transactions` + `price_history` (`app/analytics/history.py`) —
+  no daily-snapshot job needed to start using it, and no wait for future
+  data to accumulate. `null` when there's no transaction history yet.
+- **`GET /api/analytics/benchmark`** — portfolio return vs. a configured
+  passive benchmark (`BENCHMARK_TICKER`, default `0050`) over the same
+  window, and the resulting alpha (`app/analytics/benchmark.py`). Because
+  the user already holds broad-market exposure directly, this is the
+  intended success metric for individual-stock activity — excess return
+  over what's already held passively, not a raw win rate.
+  - **One-time setup**: the benchmark ticker must exist as a tracked
+    `Asset` with ingested price history, same as any other asset —
+    `POST /api/assets` (`{"ticker": "0050", "name": "元大台灣50",
+    "asset_type": "ETF", "market": "TWSE", "currency": "TWD"}`), then run
+    "Update Market Data" once. Until then the endpoint returns
+    `benchmark_return_pct: null` with a `note` explaining why, never a
+    fabricated value.
+
+Risk limits and the benchmark ticker are configurable via env vars
+(`RISK_POSITION_LIMIT_PCT`, `RISK_SECTOR_LIMIT_PCT`,
+`RISK_DRAWDOWN_PAUSE_PCT`, `RISK_DRAWDOWN_STOP_PCT`, `BENCHMARK_TICKER` —
+see `app/config.py`); the 15%/30%/-15%/-25% defaults are the engineering
+defaults confirmed with the user, not a hardcoded requirement.
+
+**36 new tests** (28 backend unit/API + no frontend changes this phase) —
+`tests/unit/test_risk_limits.py`, `tests/unit/test_history.py`,
+`tests/unit/test_benchmark.py`, and additions to `tests/api/test_analytics.py`.
+
+**Not done in this phase**: the trimmed 20-ticker watchlist from the spec
+(41 → 20 by liquidity + diversification, already applied to the separate
+看盤台 artifact's own watchlist) hasn't been seeded into *this* app's
+`assets`/`watchlist` tables yet, so `sector` grouping here still reflects
+whatever's actually been bought (2 TW stocks in the demo data), not the
+20-ticker candidate pool. No frontend UI for any of the three endpoints
+above yet. No daily/scheduled evaluation — these are pull-based (call the
+endpoint, get today's status), matching the rest of V1's manual-refresh
+model.
+
 ## Not built yet
 
 No scheduled/automatic market-data ingestion (manual "Update Market Data"
-only), AI/notifications/trading of any kind, historical time-series
-performance, market-cap/dividend-yield screener filters (schema now has
-`shares_outstanding`, but the free FinMind tier can't populate it), CSV
-import/export UI (the endpoints exist, no frontend for them yet), account
-creation/editing UI. Fubon Nano Investment has no official API/export/Open
-Banking path (confirmed in the Phase 5 Discovery Report) — its holdings are
-tracked via the existing `MANUAL_MARKET_VALUE` pattern, same as the Global
-ETF fund.
+only), notifications, or actual trading of any kind. No general
+historical-time-series-performance feature (the Phase A equity curve is
+purpose-built for drawdown/benchmark only — see above, not a reusable
+`/api/analytics/performance-over-time`). No market-cap/dividend-yield
+screener filters (schema now has `shares_outstanding`, but the free
+FinMind tier can't populate it), no CSV import/export UI (the endpoints
+exist, no frontend for them yet), no account creation/editing UI. Fubon
+Nano Investment has no official API/export/Open Banking path (confirmed in
+the Phase 5 Discovery Report) — its holdings are tracked via the existing
+`MANUAL_MARKET_VALUE` pattern, same as the Global ETF fund.
 
-As of Phase 6: no composite/regime-aware scoring, no signal engine, no
-alerts/notifications, no backtesting, no AI research/narrative layer, no
-MOPS material-announcement data (FinMind doesn't have this dataset — needs
-a second provider against TWSE/TPEx's own OpenAPI, per the Phase 5
-Discovery Report's documented fallback), no real-time data, no securities
-lending/industry-chain/ETF-specific datasets. See the Phase 6 report in
-project history for the full priority ranking and rationale for what's
-deferred and why.
+As of Phase A: no composite/regime-aware scoring, no signal engine proper
+(daily scan, strategy versioning, agent-driven iteration — Phase B/C of the
+個股訊號引擎規格書, not started), no alerts/notifications, no backtesting, no
+AI research/narrative layer, no MOPS material-announcement data (FinMind
+doesn't have this dataset — needs a second provider against TWSE/TPEx's own
+OpenAPI, per the Phase 5 Discovery Report's documented fallback), no
+real-time data, no securities lending/industry-chain/ETF-specific datasets.
+See the Phase 6 report in project history for the full priority ranking on
+those, and the 個股訊號引擎規格書 for the signal-engine roadmap.

@@ -119,3 +119,12 @@ class PortfolioService:
             total_tax_paid=summary.total_tax_paid,
             holdings_count=holdings_count,
         )
+
+    def get_all_transaction_inputs(self) -> list[TransactionInput]:
+        """Every transaction in the system as engine-ready TransactionInput,
+        reusing the same _to_input mapping _valued_holdings() uses. For
+        callers that need the full replay-ready list rather than a
+        portfolio_service-specific valuation -- e.g. AnalyticsService's
+        historical equity-curve reconstruction (app/analytics/history.py),
+        which replays a date-bounded subset of this same list per day."""
+        return [_to_input(t) for t in self.transactions.list_all()]
