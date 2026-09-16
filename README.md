@@ -35,13 +35,24 @@ see "What's implemented (Phase 8)" below.
   use. **This app is personal, single-user, and non-commercial — do not
   add any feature that redistributes or monetizes data pulled through this
   integration** without first revisiting FinMind's terms directly.
-- **How to update data**: Settings → "Update Market Data" (manual only —
-  no daily cron job in this phase). Pulls prices, fundamentals, dividends,
-  valuation ratios (P/E, P/B, dividend yield), institutional flow, margin
-  trading, and monthly revenue for every STOCK/ETF asset; a seeded demo
-  asset automatically flips `is_demo_data` to `false` the first time real
-  data lands for it, while its old `MOCK`-sourced rows stay in place
-  (distinguished by `source`, never deleted).
+- **How to update data**: Settings → "Update Market Data" (manual click),
+  or automatically once daily via a **Windows Task Scheduler** task
+  (`PersonalInvestmentOS-DailyUpdate`, 19:00 — chosen so FinMind's
+  institutional-flow/margin-trading datasets have usually settled).
+  There's still no in-app cron/scheduler — the OS triggers
+  `backend/scripts/daily_update.py`, which constructs the exact same
+  `MarketDataIngestionService` the button uses and calls `.update_all()`
+  with no ticker filter. Every run appends a line to
+  `backend/logs/daily_update.log` (status/succeeded/failed/warnings) so a
+  silent unattended failure is never actually silent. Manage the task with
+  `schtasks /query /tn PersonalInvestmentOS-DailyUpdate` and
+  `schtasks /delete /tn PersonalInvestmentOS-DailyUpdate`. Either trigger
+  pulls prices, fundamentals, dividends, valuation ratios (P/E, P/B,
+  dividend yield), institutional flow, margin trading, and monthly revenue
+  for every STOCK/ETF asset, then runs Phase 8's daily recommendation scan;
+  a seeded demo asset automatically flips `is_demo_data` to `false` the
+  first time real data lands for it, while its old `MOCK`-sourced rows
+  stay in place (distinguished by `source`, never deleted).
 - **Known data-source limitation**: `TaiwanStockMarketValue` (market cap /
   shares outstanding) requires a paid FinMind tier — the free tier used
   here returns those fields as `null` rather than failing the whole update.
@@ -439,9 +450,11 @@ candidate pool here (`scripts/seed_watchlist_20.py`).
 
 ## Not built yet
 
-No scheduled/automatic market-data ingestion (manual "Update Market Data"
-only — LINE alerts and the Phase 8 daily scan are both wired into that same
-manual trigger, not a cron job), or actual trading of any kind. No general
+Market-data ingestion can run manually (Settings → "Update Market Data")
+or once daily via an OS-level Windows Task Scheduler task — see "Market
+Data" above — but there's still no in-app scheduler/cron; LINE alerts and
+the Phase 8 daily scan both just ride along on whichever trigger fired.
+No automated trading of any kind. No general
 historical-time-series-performance feature (the Phase A equity curve is
 purpose-built for drawdown/benchmark only — see above, not a reusable
 `/api/analytics/performance-over-time`). No market-cap/dividend-yield

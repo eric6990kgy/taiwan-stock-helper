@@ -1,7 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
 import { renderWithProviders } from "../test/renderWithProviders";
 import { Transactions } from "./Transactions";
@@ -47,5 +47,39 @@ describe("Transactions page", () => {
     server.use(http.get(`${API_URL}/api/transactions`, () => HttpResponse.json({ detail: "db down" }, { status: 500 })));
     renderWithProviders(<Transactions />);
     expect(await screen.findByText("db down")).toBeInTheDocument();
+  });
+
+  it("surfaces a failed delete instead of silently doing nothing", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${API_URL}/api/transactions`, () =>
+        HttpResponse.json([
+          {
+            id: 3,
+            account_id: 1,
+            asset_id: 1,
+            date: "2026-05-20",
+            type: "BUY",
+            quantity: "10.0000",
+            price: "640.0000",
+            fee: "0.00",
+            tax: "0.00",
+            currency: "TWD",
+            note: null,
+            created_at: "2026-08-31T00:00:00",
+          },
+        ]),
+      ),
+      http.delete(`${API_URL}/api/transactions/3`, () =>
+        HttpResponse.json({ detail: "Deleting this would leave a later SELL short 5.0000 shares." }, { status: 400 }),
+      ),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderWithProviders(<Transactions />);
+
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+
+    expect(await screen.findByText(/would leave a later sell short/i)).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 });

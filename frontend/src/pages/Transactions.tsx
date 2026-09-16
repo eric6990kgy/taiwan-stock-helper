@@ -12,6 +12,7 @@ const TRANSACTION_TYPES: TransactionType[] = ["BUY", "SELL", "DIVIDEND", "FEE", 
 export function Transactions() {
   const [accountFilter, setAccountFilter] = useState<number | undefined>(undefined);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [deleteErrorFor, setDeleteErrorFor] = useState<{ id: number; message: string } | null>(null);
 
   const accountsQuery = useAccounts();
   const assetsQuery = useAssets();
@@ -109,12 +110,22 @@ export function Transactions() {
                           disabled={deleteTransaction.isPending}
                           onClick={() => {
                             if (confirm(`Delete this ${t.type} transaction on ${t.date}?`)) {
-                              deleteTransaction.mutate(t.id);
+                              setDeleteErrorFor(null);
+                              deleteTransaction.mutate(t.id, {
+                                onError: (err) =>
+                                  setDeleteErrorFor({
+                                    id: t.id,
+                                    message: err instanceof ApiRequestError ? err.message : "Failed to delete transaction.",
+                                  }),
+                              });
                             }
                           }}
                         >
                           Delete
                         </button>
+                        {deleteErrorFor?.id === t.id && (
+                          <p className="mt-1 max-w-xs text-right text-xs text-red-600">{deleteErrorFor.message}</p>
+                        )}
                       </td>
                     </tr>
                   ))}
