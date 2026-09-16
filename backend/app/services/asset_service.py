@@ -24,7 +24,13 @@ class AssetService:
         return asset
 
     def list(self) -> list[Asset]:
-        return self.repo.list()
+        # INDEX assets (TAIEX) are internal bookkeeping for Phase 7 regime
+        # detection -- never a personal holding, so they must never appear
+        # in a ticker/asset picker (Research, Watchlist, Transactions all
+        # share this one endpoint). MarketDataIngestionService/ScreenerService
+        # call AssetRepository.list() directly and filter to STOCK/ETF
+        # themselves, so this exclusion only affects picker-facing reads.
+        return [a for a in self.repo.list() if a.asset_type != "INDEX"]
 
     def create(self, **fields) -> Asset:
         try:

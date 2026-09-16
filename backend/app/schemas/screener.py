@@ -18,4 +18,7 @@ class ScreenerResult(BaseModel):
     foreign_net_buy: int | None = None
     rsi_14: DecimalStr | None = None
     above_sma_20: bool | None = None
+    # Phase 7 -- the latest *persisted* composite score, None if no score
+    # has been computed yet for this asset (never recomputed here).
+    composite_score: DecimalStr | None = None
     meets_criteria: bool

@@ -21,6 +21,7 @@ from app.services.market_data_service import MarketDataIngestionService
 from app.services.portfolio_service import PortfolioService
 from app.services.research_service import ResearchService
 from app.services.screener_service import ScreenerService
+from app.services.signal_service import SignalService
 from app.services.thesis_service import ThesisService
 from app.services.transaction_service import TransactionService
 from app.services.watchlist_service import WatchlistService
@@ -69,10 +70,15 @@ def get_thesis_service(db: Session = Depends(get_db)) -> ThesisService:
 
 
 def get_research_service(
+    db: Session = Depends(get_db),
     market_data: MarketDataProvider = Depends(get_market_data_provider),
     thesis_service: ThesisService = Depends(get_thesis_service),
 ) -> ResearchService:
-    return ResearchService(market_data, thesis_service)
+    return ResearchService(db, market_data, thesis_service)
+
+
+def get_signal_service(db: Session = Depends(get_db)) -> SignalService:
+    return SignalService(db)
 
 
 def get_screener_service(

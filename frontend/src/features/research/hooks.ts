@@ -49,6 +49,30 @@ export function useTechnicalIndicators(ticker: string | null) {
   });
 }
 
+export function useScore(ticker: string | null) {
+  return useQuery({
+    queryKey: ["score", ticker],
+    queryFn: () => researchApi.score(ticker as string),
+    enabled: !!ticker,
+  });
+}
+
+export function useScoreHistory(ticker: string | null, range?: string) {
+  return useQuery({
+    queryKey: ["score-history", ticker, range],
+    queryFn: () => researchApi.scoreHistory(ticker as string, range),
+    enabled: !!ticker,
+  });
+}
+
+export function useSignals(ticker: string | null) {
+  return useQuery({
+    queryKey: ["signals", ticker],
+    queryFn: () => researchApi.signals(ticker as string),
+    enabled: !!ticker,
+  });
+}
+
 export function useUpsertThesis(ticker: string) {
   const queryClient = useQueryClient();
   return useMutation({

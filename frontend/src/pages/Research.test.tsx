@@ -100,15 +100,67 @@ const mockRevenue = [
   { revenue_year: 2026, revenue_month: 7, revenue: "467580548000.0000", yoy_growth: "0.05", mom_growth: null, announcement_date: "2026-08-01", source: "FINMIND" },
 ];
 
+const mockScore = {
+  date: "2026-08-28",
+  value_score: "80.00",
+  growth_score: null,
+  momentum_score: null,
+  quality_score: "60.00",
+  composite_score: "70.00",
+  regime: "BULL",
+  missing_components: ["growth", "momentum"],
+  source: "CALCULATED",
+};
+
+const mockScoreHistory = [
+  { ...mockScore, date: "2026-08-27", composite_score: "65.00" },
+  mockScore,
+];
+
+const mockSignals = {
+  ticker: "3653",
+  as_of: "2026-08-28",
+  overall_status: "BULLISH",
+  composite_score: "70.00",
+  regime: "BULL",
+  signals: [
+    {
+      id: "PRICE_ABOVE_SMA20",
+      category: "TECHNICAL",
+      name: "股價站上20日均線",
+      status: "BULLISH",
+      value: "650.00",
+      threshold: "630.00",
+      as_of: "2026-08-28",
+      explanation: "股價 650 站上 20 日均線 630.00",
+      source: "CALCULATED",
+    },
+    {
+      id: "COMPOSITE_SCORE",
+      category: "COMPOSITE",
+      name: "綜合評分",
+      status: "BULLISH",
+      value: "70.00",
+      threshold: "60",
+      as_of: "2026-08-28",
+      explanation: "綜合評分 70.0 達 60 以上",
+      source: "CALCULATED",
+    },
+  ],
+};
+
 function setupHandlers() {
   server.use(
     http.get(`${API_URL}/api/assets`, () => HttpResponse.json(mockAssetsForResearch)),
     http.get(`${API_URL}/api/research/3653`, () => HttpResponse.json(mockResearchPage)),
     http.get(`${API_URL}/api/prices/3653`, () => HttpResponse.json(mockPrices)),
     http.get(`${API_URL}/api/research/3653/technical`, () => HttpResponse.json(mockTechnical)),
+    http.get(`${API_URL}/api/research/3653/score`, () => HttpResponse.json(mockScore)),
+    http.get(`${API_URL}/api/research/3653/scores`, () => HttpResponse.json(mockScoreHistory)),
     http.get(`${API_URL}/api/research/3653/institutional`, () => HttpResponse.json(mockInstitutionalFlows)),
     http.get(`${API_URL}/api/research/3653/margin`, () => HttpResponse.json(mockMargin)),
     http.get(`${API_URL}/api/research/3653/revenue`, () => HttpResponse.json(mockRevenue)),
+    http.get(`${API_URL}/api/research/3653/signals`, () => HttpResponse.json(mockSignals)),
   );
 }
 
@@ -165,9 +217,12 @@ describe("Research page -- Phase 6 sections", () => {
       http.get(`${API_URL}/api/research/3653`, () => HttpResponse.json(mockResearchPage)),
       http.get(`${API_URL}/api/prices/3653`, () => HttpResponse.json(mockPrices)),
       http.get(`${API_URL}/api/research/3653/technical`, () => HttpResponse.json(mockTechnical)),
+      http.get(`${API_URL}/api/research/3653/score`, () => HttpResponse.json(null)),
+      http.get(`${API_URL}/api/research/3653/scores`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/institutional`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/margin`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/revenue`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/signals`, () => HttpResponse.json(mockSignals)),
     );
     renderWithProviders(<Research />);
     expect(await screen.findByText(/no institutional flow data ingested yet/i)).toBeInTheDocument();
@@ -181,11 +236,49 @@ describe("Research page -- Phase 6 sections", () => {
       http.get(`${API_URL}/api/research/3653`, () => HttpResponse.json(mockResearchPage)),
       http.get(`${API_URL}/api/prices/3653`, () => HttpResponse.json(mockPrices)),
       http.get(`${API_URL}/api/research/3653/technical`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })),
+      http.get(`${API_URL}/api/research/3653/score`, () => HttpResponse.json(null)),
+      http.get(`${API_URL}/api/research/3653/scores`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/institutional`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/margin`, () => HttpResponse.json([])),
       http.get(`${API_URL}/api/research/3653/revenue`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/signals`, () => HttpResponse.json(mockSignals)),
     );
     renderWithProviders(<Research />);
     expect(await screen.findByText("boom")).toBeInTheDocument();
+  });
+
+  it("renders the composite score section with sub-scores and regime", async () => {
+    setupHandlers();
+    renderWithProviders(<Research />);
+    expect(await screen.findByText("Composite Score")).toBeInTheDocument();
+    expect(await screen.findByText("70.0")).toBeInTheDocument(); // composite_score
+    expect(await screen.findByText("BULL")).toBeInTheDocument();
+    expect(await screen.findByText(/missing: growth, momentum/i)).toBeInTheDocument();
+  });
+
+  it("renders the signals section grouped by category with an overall badge", async () => {
+    setupHandlers();
+    renderWithProviders(<Research />);
+    expect(await screen.findByText("Signals")).toBeInTheDocument();
+    expect(await screen.findByText("股價站上20日均線")).toBeInTheDocument();
+    expect(await screen.findByText("Overall")).toBeInTheDocument();
+    expect((await screen.findAllByText("BULLISH")).length).toBeGreaterThan(0);
+  });
+
+  it("shows an honest empty state for composite score when nothing has been computed yet", async () => {
+    server.use(
+      http.get(`${API_URL}/api/assets`, () => HttpResponse.json(mockAssetsForResearch)),
+      http.get(`${API_URL}/api/research/3653`, () => HttpResponse.json(mockResearchPage)),
+      http.get(`${API_URL}/api/prices/3653`, () => HttpResponse.json(mockPrices)),
+      http.get(`${API_URL}/api/research/3653/technical`, () => HttpResponse.json(mockTechnical)),
+      http.get(`${API_URL}/api/research/3653/score`, () => HttpResponse.json(null)),
+      http.get(`${API_URL}/api/research/3653/scores`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/institutional`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/margin`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/revenue`, () => HttpResponse.json([])),
+      http.get(`${API_URL}/api/research/3653/signals`, () => HttpResponse.json(mockSignals)),
+    );
+    renderWithProviders(<Research />);
+    expect(await screen.findByText(/no composite score computed yet/i)).toBeInTheDocument();
   });
 });

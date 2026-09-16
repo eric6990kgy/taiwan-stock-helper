@@ -134,3 +134,97 @@ def test_technical_endpoint_as_of_truncates_to_historical_snapshot(client):
 
     assert earlier["as_of"] <= "2026-08-20"
     assert earlier["as_of"] != full["as_of"]
+
+
+# ---- Phase 7: composite score -----------------------------------------------------
+
+
+def test_score_endpoint_returns_null_when_no_score_computed_yet(client):
+    """The seed dataset predates Phase 7 -- no scores table rows exist for
+    3653 yet. Null, not a fabricated score or a 500."""
+    resp = client.get("/api/research/3653/score")
+    assert resp.status_code == 200
+    assert resp.json() is None
+
+
+def test_score_endpoint_unknown_ticker_404(client):
+    resp = client.get("/api/research/NOPE/score")
+    assert resp.status_code == 404
+
+
+def test_score_history_endpoint_returns_empty_list_when_no_scores_computed_yet(client):
+    resp = client.get("/api/research/3653/scores")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_score_history_endpoint_unknown_ticker_404(client):
+    resp = client.get("/api/research/NOPE/scores")
+    assert resp.status_code == 404
+
+
+def test_score_endpoints_return_a_persisted_score(client):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.api.deps import get_db
+    from app.main import app
+    from app.models.score import Score
+    from app.repositories.asset_repository import AssetRepository
+
+    db = next(app.dependency_overrides[get_db]())
+    asset = AssetRepository(db).get_by_ticker("3653")
+    db.add(
+        Score(
+            asset_id=asset.id,
+            date=date(2026, 8, 28),
+            value_score=Decimal("80.00"),
+            growth_score=None,
+            momentum_score=None,
+            quality_score=None,
+            composite_score=Decimal("80.00"),
+            regime=None,
+            missing_components="growth,momentum,quality",
+            source="CALCULATED",
+        )
+    )
+    db.commit()
+    db.close()
+
+    latest = client.get("/api/research/3653/score").json()
+    assert latest["composite_score"] == "80.00"
+    assert sorted(latest["missing_components"]) == ["growth", "momentum", "quality"]
+
+    history = client.get("/api/research/3653/scores").json()
+    assert len(history) == 1
+    assert history[0]["date"] == "2026-08-28"
+
+
+# ---- Phase 7 Part 2: signals -----------------------------------------------
+
+
+def test_signals_endpoint_returns_a_full_signal_result(client):
+    resp = client.get("/api/research/3653/signals")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ticker"] == "3653"
+    assert body["overall_status"] in {"BULLISH", "BEARISH", "NEUTRAL", "UNAVAILABLE"}
+    ids = {s["id"] for s in body["signals"]}
+    assert "COMPOSITE_SCORE" in ids
+    assert "PRICE_ABOVE_SMA20" in ids
+
+
+def test_signals_endpoint_unknown_ticker_404(client):
+    resp = client.get("/api/research/NOPE/signals")
+    assert resp.status_code == 404
+
+
+def test_signals_endpoint_respects_as_of(client):
+    default_as_of = client.get("/api/research/3653/signals").json()["as_of"]
+
+    from datetime import date, timedelta
+
+    earlier = (date.fromisoformat(default_as_of) - timedelta(days=1)).isoformat()
+    resp = client.get(f"/api/research/3653/signals?as_of={earlier}")
+    assert resp.status_code == 200
+    assert resp.json()["as_of"] == earlier

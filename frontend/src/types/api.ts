@@ -219,6 +219,7 @@ export interface ScreenerResult {
   foreign_net_buy: number | null;
   rsi_14: string | null;
   above_sma_20: boolean | null;
+  composite_score: string | null;
   meets_criteria: boolean;
 }
 
@@ -292,6 +293,56 @@ export interface TechnicalIndicators {
   as_of: string | null;
   indicators: TechnicalIndicatorValues;
   source: string;
+}
+
+// ---- Phase 7: composite score --------------------------------------------------
+
+/** Persisted (unlike TechnicalIndicators, which is computed on demand) --
+ * one row per day, so a history of these can plot a score trend. A null
+ * sub-score means it couldn't be computed for that date (listed in
+ * missing_components), never a fabricated neutral value. */
+export interface Score {
+  date: string;
+  value_score: string | null;
+  growth_score: string | null;
+  momentum_score: string | null;
+  quality_score: string | null;
+  composite_score: string | null;
+  regime: "BULL" | "BEAR" | "NEUTRAL" | null;
+  missing_components: string[];
+  source: string;
+}
+
+// ---- Phase 7 Part 2: deterministic signals --------------------------------------
+
+export type SignalStatus = "BULLISH" | "BEARISH" | "NEUTRAL" | "UNAVAILABLE";
+
+/** A signal is NOT an investment recommendation -- BULLISH/BEARISH describe
+ * an indicator's own reading (e.g. "price above its 20-day average"), never
+ * a BUY/SELL instruction. Computed on demand, never persisted (unlike
+ * Score above) -- there is no /signals/history endpoint. */
+export interface Signal {
+  id: string;
+  category: "TECHNICAL" | "INSTITUTIONAL" | "FUNDAMENTAL" | "COMPOSITE";
+  name: string;
+  status: SignalStatus;
+  value: string | null;
+  threshold: string | null;
+  as_of: string | null;
+  explanation: string;
+  source: string;
+}
+
+/** overall_status is an unweighted majority vote over every non-UNAVAILABLE
+ * signal (V1, not IC/backtest-weighted) -- a tie, including "everything
+ * NEUTRAL", is NEUTRAL; UNAVAILABLE only when every signal is UNAVAILABLE. */
+export interface SignalResult {
+  ticker: string;
+  as_of: string | null;
+  signals: Signal[];
+  overall_status: SignalStatus;
+  composite_score: string | null;
+  regime: "BULL" | "BEAR" | "NEUTRAL" | null;
 }
 
 // ---- Market Data (Phase 5B) -------------------------------------------------

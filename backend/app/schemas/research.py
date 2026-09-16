@@ -121,3 +121,52 @@ class TechnicalIndicatorsRead(BaseModel):
     as_of: date | None
     indicators: TechnicalIndicatorValues
     source: str = "CALCULATED"
+
+
+class SignalRead(BaseModel):
+    """One discrete BULLISH/BEARISH/NEUTRAL/UNAVAILABLE reading (Phase 7
+    Part 2) -- computed on demand, never persisted (see SignalResultRead).
+    `explanation` is a human-readable reading of `value`/`threshold`, e.g.
+    "股價 620 站上 20 日均線 605.32"."""
+
+    id: str
+    category: str
+    name: str
+    status: str
+    value: DecimalStr | None
+    threshold: DecimalStr | None
+    as_of: date | None
+    explanation: str
+    source: str
+
+
+class SignalResultRead(BaseModel):
+    """A signal is NOT an investment recommendation -- BULLISH/BEARISH
+    describe an indicator's own reading, never BUY/SELL. `overall_status`
+    is an unweighted majority vote over every non-UNAVAILABLE signal
+    (documented V1 caveat, same as composite_score's thresholds)."""
+
+    ticker: str
+    as_of: date | None
+    signals: list[SignalRead]
+    overall_status: str
+    composite_score: DecimalStr | None
+    regime: str | None
+
+
+class ScoreRead(BaseModel):
+    """Phase 7 composite score -- persisted, not computed on demand (unlike
+    TechnicalIndicatorsRead). missing_components names exactly which of the
+    four sub-scores couldn't be computed for this date; regime is the
+    TAIEX-derived market read used to weight them, None if TAIEX data
+    wasn't available yet when this score was computed."""
+
+    date: date
+    value_score: DecimalStr | None
+    growth_score: DecimalStr | None
+    momentum_score: DecimalStr | None
+    quality_score: DecimalStr | None
+    composite_score: DecimalStr | None
+    regime: str | None
+    missing_components: list[str]
+    source: str

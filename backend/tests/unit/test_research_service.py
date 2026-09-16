@@ -63,9 +63,9 @@ def revenue(year, month, amount) -> MonthlyRevenueDTO:
 # ---- get_technical_indicators: no price history -----------------------------------
 
 
-def test_technical_indicators_no_price_history_returns_null_indicators_not_error():
+def test_technical_indicators_no_price_history_returns_null_indicators_not_error(db_session):
     provider = StubProvider()
-    service = ResearchService(market_data=provider, thesis_service=None)
+    service = ResearchService(db_session, market_data=provider, thesis_service=None)
 
     result = service.get_technical_indicators("EMPTY")
 
@@ -75,11 +75,11 @@ def test_technical_indicators_no_price_history_returns_null_indicators_not_error
         assert getattr(result.indicators, field_name) is None
 
 
-def test_technical_indicators_unknown_ticker_raises_not_found():
+def test_technical_indicators_unknown_ticker_raises_not_found(db_session):
     from app.services.exceptions import NotFoundError
 
     provider = StubProvider()
-    service = ResearchService(market_data=provider, thesis_service=None)
+    service = ResearchService(db_session, market_data=provider, thesis_service=None)
     try:
         service.get_technical_indicators("NOPE")
         assert False, "expected NotFoundError"
@@ -87,10 +87,10 @@ def test_technical_indicators_unknown_ticker_raises_not_found():
         pass
 
 
-def test_technical_indicators_as_of_excludes_future_prices():
+def test_technical_indicators_as_of_excludes_future_prices(db_session):
     provider = StubProvider()
     provider.price_points = [price(date(2026, 8, d), 100 + d) for d in range(1, 15)]
-    service = ResearchService(market_data=provider, thesis_service=None)
+    service = ResearchService(db_session, market_data=provider, thesis_service=None)
 
     result = service.get_technical_indicators("2330", as_of=date(2026, 8, 10))
     assert result.as_of == date(2026, 8, 10)

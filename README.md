@@ -10,14 +10,15 @@ for the research-only comparison against six external Taiwan-stock/quant
 GitHub projects that informed the Phase 6 priority ranking (institutional
 flow, margin trading, monthly revenue, technical indicators).
 
-## Status: Phase 6 complete — Taiwan Chip Data + Technical Analysis
+## Status: Phase 7 complete — Composite Scoring + Signal Engine + LINE Alerts
 
 Full stack usable end-to-end from a browser. Beyond price/fundamentals/
-dividends/valuation (Phase 5B), the app now ingests institutional-investor
-flow and margin trading data, populates monthly revenue, and computes a
-deterministic technical-indicator layer (SMA/EMA/RSI/MACD/Bollinger/KD) on
-demand from price history — all exposed on the Research page alongside a
-candlestick + volume chart.
+dividends/valuation (Phase 5B) and institutional flow/margin trading/
+monthly revenue/technical indicators (Phase 6), the app now computes a
+regime-aware composite score, a deterministic per-signal read (BULLISH/
+BEARISH/NEUTRAL/UNAVAILABLE — never a recommendation), and can ping your
+LINE when one fires, while execution stays entirely manual — see "What's
+implemented (Phase 7)" below.
 
 ## Market Data
 
@@ -317,10 +318,72 @@ above yet. No daily/scheduled evaluation — these are pull-based (call the
 endpoint, get today's status), matching the rest of V1's manual-refresh
 model.
 
+## What's implemented (Phase 7 — Composite Scoring + Signal Engine + LINE Alerts)
+
+- **Composite scoring** (`app/analytics/scoring.py`, `app/services/scoring_service.py`,
+  new `scores` table): four style sub-scores (value/growth/momentum/quality),
+  each 0-100 or `null` when its inputs are missing — never a fabricated 50
+  "neutral". A market-regime read (`BULL`/`BEAR`/`NEUTRAL`, from TAIEX's own
+  SMA50/SMA200 relationship) selects which weight table combines the
+  sub-scores into one composite score, None-aware (a missing sub-score is
+  dropped and the remaining weights renormalize). **Every threshold/weight
+  is a V1 placeholder** — directionally sensible, not empirically
+  validated against this market's own return data. Computed and persisted
+  once per asset per "Update Market Data" run (`GET /api/research/{ticker}/score`,
+  `/scores` for history); a new `INDEX` asset type tracks TAIEX purely for
+  regime detection (never a portfolio holding).
+- **Deterministic signal engine** (`app/analytics/signals.py`,
+  `app/services/signal_service.py`): 8 discrete BULLISH/BEARISH/NEUTRAL/
+  UNAVAILABLE signals — `PRICE_ABOVE_SMA20`/`60`, `RSI_BULLISH`,
+  `MACD_BULLISH` (technical), `FOREIGN_NET_BUYING`/`INVESTMENT_TRUST_NET_BUYING`
+  (institutional, 5-day trailing net), `REVENUE_GROWTH_POSITIVE`/
+  `_ACCELERATING` (fundamental), and `COMPOSITE_SCORE` (reads the
+  already-persisted composite score above, never recomputes it). **A
+  signal is not an investment recommendation** — BULLISH/BEARISH describe
+  an indicator's own reading, never a BUY/SELL instruction; UNAVAILABLE
+  (never a fabricated NEUTRAL) whenever there isn't enough history.
+  Computed on demand, not persisted (`GET /api/research/{ticker}/signals`,
+  optional `as_of`) — no look-ahead bias, verified by a dedicated test per
+  signal type that takes a dated series. `overall_status` is an
+  unweighted majority vote (V1, documented) over every non-UNAVAILABLE
+  signal.
+- **LINE alerts** (`app/services/line_notifier.py`): execution stays 100%
+  manual — this only sends a LINE message when any of an asset's signals
+  is BULLISH/BEARISH after "Update Market Data" runs; you decide whether
+  to act and place the order yourself. **Nothing in this repo calls, or
+  will ever call, a broker API.** Uses the LINE Messaging API's
+  `broadcast` endpoint (LINE Notify shut down 2025-03-31) — a personal
+  single-user bot broadcasting to "everyone who added it" is just you, no
+  public webhook needed. One consolidated message per asset (non-neutral
+  signals + composite score/regime), none sent for an asset with nothing
+  to report. Best-effort: no `LINE_CHANNEL_ACCESS_TOKEN` configured →
+  silently disabled; a failed send is reported as a `validation_warnings`
+  entry, never blocks the ingestion batch. **One-time setup**: create a
+  free LINE Official Account / Messaging API channel in the
+  [LINE Developers Console](https://developers.line.biz/console/), add the
+  bot as a friend on your phone, put the channel access token in
+  `backend/.env` as `LINE_CHANNEL_ACCESS_TOKEN`. Scheduling (e.g. a daily
+  auto-run instead of only on manual "Update Market Data") is explicitly
+  out of scope this phase.
+- **Research page**: new Composite Score section (sub-score bars, regime
+  badge, trend chart) and Signals section (grouped by category, an
+  "Overall" badge, expandable per-signal value/threshold/explanation) —
+  both reachable from the existing ticker selector.
+- **Not built this phase**: no `signals`/`signal_history` table (on-demand
+  by design, see above — no `/signals/history` endpoint); no screener
+  filter on signal status; no scheduler for LINE alerts (manual "Update
+  Market Data" trigger only); no AI/LLM/RAG layer, no automated order
+  placement, no broker API integration of any kind.
+- **115 new backend tests** (bringing the total to 432) and **16 new
+  frontend tests** (bringing the total to 69 — 501 overall). New Alembic
+  migration (`986c58d676b5`, adds `scores` + `INDEX` asset type) verified
+  from a clean DB.
+
 ## Not built yet
 
 No scheduled/automatic market-data ingestion (manual "Update Market Data"
-only), notifications, or actual trading of any kind. No general
+only — LINE alerts above are wired into that same manual trigger, not a
+cron job), or actual trading of any kind. No general
 historical-time-series-performance feature (the Phase A equity curve is
 purpose-built for drawdown/benchmark only — see above, not a reusable
 `/api/analytics/performance-over-time`). No market-cap/dividend-yield
@@ -331,9 +394,12 @@ Nano Investment has no official API/export/Open Banking path (confirmed in
 the Phase 5 Discovery Report) — its holdings are tracked via the existing
 `MANUAL_MARKET_VALUE` pattern, same as the Global ETF fund.
 
-As of Phase A: no composite/regime-aware scoring, no signal engine proper
-(daily scan, strategy versioning, agent-driven iteration — Phase B/C of the
-個股訊號引擎規格書, not started), no alerts/notifications, no backtesting, no
+As of Phase 7: no signal-status persistence (so LINE alerts fire on every
+"currently BULLISH/BEARISH" run, not just on a change since last time — an
+accepted V1 tradeoff, see the Signal Engine section above), no signal
+engine proper in the 個股訊號引擎規格書 sense (daily scan, strategy
+versioning, agent-driven iteration — that spec's Phase B/C, not started
+and not reconciled with this app's own Phase 7 naming), no backtesting, no
 AI research/narrative layer, no MOPS material-announcement data (FinMind
 doesn't have this dataset — needs a second provider against TWSE/TPEx's own
 OpenAPI, per the Phase 5 Discovery Report's documented fallback), no

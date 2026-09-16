@@ -1,8 +1,12 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
 from app.analytics import technical
 from app.providers.market_data_provider import AssetNotFoundError, MarketDataProvider, MonthlyRevenueDTO
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.score_repository import ScoreRepository
 from app.schemas.research import (
     FundamentalsRead,
     InstitutionalFlowRead,
@@ -11,6 +15,7 @@ from app.schemas.research import (
     PricePointRead,
     QuoteRead,
     ResearchPageRead,
+    ScoreRead,
     TechnicalIndicatorsRead,
     TechnicalIndicatorValues,
 )
@@ -29,9 +34,15 @@ RANGE_DAYS = {
 
 
 class ResearchService:
-    def __init__(self, market_data: MarketDataProvider, thesis_service: ThesisService):
+    def __init__(self, db: Session, market_data: MarketDataProvider, thesis_service: ThesisService):
         self.market_data = market_data
         self.thesis_service = thesis_service
+        # Scores (Phase 7) are locally computed/persisted, never fetched
+        # from a provider -- accessed directly via repository, same
+        # "not every dependency has to go through MarketDataProvider"
+        # precedent as thesis_service above.
+        self.assets = AssetRepository(db)
+        self.scores_repo = ScoreRepository(db)
 
     def get_research_page(self, ticker: str) -> ResearchPageRead:
         try:
@@ -153,12 +164,43 @@ class ResearchService:
         values = TechnicalIndicatorValues(**snapshot)
         return TechnicalIndicatorsRead(ticker=ticker, as_of=points[-1].date, indicators=values, source="CALCULATED")
 
+    def get_score(self, ticker: str) -> ScoreRead | None:
+        """None means no score has been computed yet for this ticker
+        (e.g. before the first "Update Market Data" run) -- not an error."""
+        asset = self.assets.get_by_ticker(ticker)
+        if asset is None:
+            raise NotFoundError(f"Unknown ticker: {ticker!r}")
+        rows = self.scores_repo.range(asset.id)
+        return _to_score_read(rows[-1]) if rows else None
+
+    def get_score_history(self, ticker: str, range_key: str | None = None) -> list[ScoreRead]:
+        asset = self.assets.get_by_ticker(ticker)
+        if asset is None:
+            raise NotFoundError(f"Unknown ticker: {ticker!r}")
+        start = self._range_start(ticker, range_key) if range_key else None
+        rows = self.scores_repo.range(asset.id, start=start)
+        return [_to_score_read(r) for r in rows]
+
     def _range_start(self, ticker: str, range_key: str) -> date:
         quote = self.market_data.get_quote(ticker)
         days = RANGE_DAYS.get(range_key.upper())
         if days is None:
             raise ValueError(f"Unsupported range: {range_key!r}. Use one of {list(RANGE_DAYS)}.")
         return quote.as_of - timedelta(days=days)
+
+
+def _to_score_read(row) -> ScoreRead:
+    return ScoreRead(
+        date=row.date,
+        value_score=row.value_score,
+        growth_score=row.growth_score,
+        momentum_score=row.momentum_score,
+        quality_score=row.quality_score,
+        composite_score=row.composite_score,
+        regime=row.regime,
+        missing_components=[c for c in row.missing_components.split(",") if c],
+        source=row.source,
+    )
 
 
 def _revenue_growth(current: MonthlyRevenueDTO, all_rows: list[MonthlyRevenueDTO], years_back: int) -> Decimal | None:

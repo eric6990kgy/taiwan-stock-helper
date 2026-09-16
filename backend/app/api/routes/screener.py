@@ -20,6 +20,7 @@ def screen(
     rsi_lt: Decimal | None = None,
     rsi_gt: Decimal | None = None,
     above_sma_20: bool | None = None,
+    composite_score_gt: Decimal | None = None,
     service: ScreenerService = Depends(get_screener_service),
 ):
     return service.screen(
@@ -32,4 +33,5 @@ def screen(
         rsi_lt=rsi_lt,
         rsi_gt=rsi_gt,
         above_sma_20=above_sma_20,
+        composite_score_gt=composite_score_gt,
     )

@@ -25,16 +25,23 @@ from app.repositories.margin_trading_repository import MarginTradingRepository
 from app.repositories.monthly_revenue_repository import MonthlyRevenueRepository
 from app.repositories.price_repository import PriceRepository
 from app.schemas.market_data import MarketDataError, MarketDataUpdateResult
+from app.services.line_notifier import LineNotifier, LineNotifyError, format_signal_alert
 from app.services.market_data_validation import PriceValidationError, validate_price_point
+from app.services.scoring_service import TAIEX_TICKER, ScoringService
+from app.services.signal_service import SignalService
 
 SOURCE = "FINMIND"
 INCREMENTAL_LOOKBACK_DAYS = 5  # small overlap window on repeat updates, to catch late corrections
 INITIAL_BACKFILL_DAYS = 365 * 2  # first-ever real ingestion for a ticker pulls 2 years of history
+REGIME_BACKFILL_DAYS = 365 * 3  # TAIEX needs 200+ trading days of history for regime detection (SMA200)
 
 # Market data only applies to things that actually trade on an exchange.
 # CASH is a bookkeeping placeholder and FUND (the Global ETF, valued
 # MANUAL_MARKET_VALUE) is deliberately user-entered -- see Asset's docstring
 # and architecture decision A4. Neither has a ticker FinMind would recognize.
+# INDEX (TAIEX) is provisioned and ingested separately (_ensure_taiex_asset),
+# not through this per-asset loop -- it has no fundamentals/dividends/
+# institutional-flow/margin/revenue to fetch, only price history.
 ELIGIBLE_ASSET_TYPES = ("STOCK", "ETF")
 
 
@@ -49,8 +56,70 @@ class MarketDataIngestionService:
         self.institutional_flows_repo = InstitutionalFlowRepository(db)
         self.margin_trading_repo = MarginTradingRepository(db)
         self.monthly_revenue_repo = MonthlyRevenueRepository(db)
+        self.scoring_service = ScoringService(db)
+        self.signal_service = SignalService(db)
+        self.line_notifier = LineNotifier()
+
+    def close(self) -> None:
+        self.line_notifier.close()
+
+    def _ensure_taiex_asset(self) -> Asset:
+        """Get-or-create the TAIEX INDEX asset (Phase 7) -- tracked purely
+        for regime detection, never a portfolio holding, never appears in
+        holdings/transactions. Idempotent: a second call finds the existing
+        row instead of creating a duplicate."""
+        asset = self.assets.get_by_ticker(TAIEX_TICKER)
+        if asset is not None:
+            return asset
+        asset = Asset(
+            ticker=TAIEX_TICKER,
+            name="TAIEX",
+            asset_type="INDEX",
+            market="TWSE",
+            currency="TWD",
+            is_demo_data=False,
+        )
+        self.db.add(asset)
+        self.db.flush()
+        return asset
+
+    def _update_taiex_history(self, taiex: Asset) -> None:
+        """Same validate+upsert loop as a stock's price history -- TAIEX has
+        no fundamentals/dividends/etc. to fetch, only price history."""
+        existing_latest = self.prices.latest(taiex.id)
+        start = (
+            existing_latest.date - timedelta(days=INCREMENTAL_LOOKBACK_DAYS)
+            if existing_latest is not None
+            else date.today() - timedelta(days=REGIME_BACKFILL_DAYS)
+        )
+        for point in self.provider.get_historical_prices(taiex.ticker, start=start, end=date.today()):
+            try:
+                validate_price_point(point)
+            except PriceValidationError:
+                continue
+            self.prices.upsert(
+                taiex.id,
+                point.date,
+                open=point.open,
+                high=point.high,
+                low=point.low,
+                close=point.close,
+                volume=point.volume,
+                adjusted_close=point.adjusted_close,
+                trading_value=point.trading_value,
+                source=SOURCE,
+            )
 
     def update_all(self, tickers: list[str] | None = None) -> MarketDataUpdateResult:
+        """Closes self.line_notifier's httpx.Client when done, win or lose --
+        this service is constructed fresh per-request (see get_market_data_service),
+        so nothing else would ever close it."""
+        try:
+            return self._update_all(tickers)
+        finally:
+            self.close()
+
+    def _update_all(self, tickers: list[str] | None = None) -> MarketDataUpdateResult:
         if tickers:
             assets = [self.assets.get_by_ticker(t) for t in tickers]
             assets = [a for a in assets if a is not None]
@@ -63,6 +132,34 @@ class MarketDataIngestionService:
         validation_warnings: list[MarketDataError] = []
         latest_date: date | None = None
         status = "completed"
+
+        # TAIEX (regime detection input for Phase 7 scoring) updates before
+        # the main per-asset loop, so scores computed below see fresh data.
+        # A rate limit here must stop the whole batch exactly like a rate
+        # limit on any individual asset would -- report every real asset as
+        # skipped rather than silently proceeding without regime data.
+        taiex = self._ensure_taiex_asset()
+        try:
+            self._update_taiex_history(taiex)
+        except RateLimitError as exc:
+            failed.append(MarketDataError(ticker=taiex.ticker, reason=f"Rate limited: {exc}"))
+            for asset in assets:
+                failed.append(MarketDataError(ticker=asset.ticker, reason="Skipped: update stopped after rate limit."))
+            self.db.commit()
+            return MarketDataUpdateResult(
+                status="rate_limited",
+                assets_processed=len(assets),
+                succeeded=succeeded,
+                failed=failed,
+                validation_warnings=validation_warnings,
+                latest_data_date=latest_date,
+                source=SOURCE,
+            )
+        except ProviderError:
+            # TAIEX itself failing (but not rate-limited) is not fatal --
+            # regime detection just falls back to None (composite_score's
+            # equal-weighted default) until the next successful update.
+            pass
 
         for index, asset in enumerate(assets):
             try:
@@ -270,6 +367,35 @@ class MarketDataIngestionService:
             raise
         except ProviderError as exc:
             warnings.append(MarketDataError(ticker=asset.ticker, reason=f"Monthly revenue unavailable: {exc}"))
+
+        # Phase 7: composite score, best-effort like everything above --
+        # reads only from the local DB just written above (never calls
+        # FinMind), so nothing here raises RateLimitError. An
+        # AssetNotFoundError would mean the price row just upserted for
+        # latest_written isn't visible for some reason -- shouldn't happen,
+        # but handled the same defensive way as every other block.
+        try:
+            self.scoring_service.compute_and_store(asset.ticker, latest_written)
+        except AssetNotFoundError as exc:
+            warnings.append(MarketDataError(ticker=asset.ticker, reason=f"Score unavailable: {exc}"))
+
+        # LINE alert (added per user request, confirmed 2026-09-14): best-
+        # effort like the block above -- reads only the local DB (signals
+        # are computed on demand, never persisted), so the only way this
+        # can fail is the LINE broadcast HTTP call itself. No-token
+        # (LineNotifier.enabled is False) is the default, silent, expected
+        # state, not a warning. Triggers on ANY signal currently BULLISH/
+        # BEARISH, not a change-since-last-time comparison (accepted V1
+        # tradeoff -- see the plan's "LINE Alerts" section).
+        try:
+            result = self.signal_service.get_signals(asset.ticker)
+            message = format_signal_alert(
+                asset.ticker, asset.name, result.as_of, result.signals, result.composite_score, result.regime
+            )
+            if message is not None:
+                self.line_notifier.broadcast(message)
+        except LineNotifyError as exc:
+            warnings.append(MarketDataError(ticker=asset.ticker, reason=f"LINE alert not sent: {exc}"))
 
         # Demo -> real transition (Phase 5B decision 4): flips automatically
         # on the first successfully validated real record, preserving the

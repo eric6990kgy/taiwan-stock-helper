@@ -25,6 +25,13 @@ RISK_SECTOR_LIMIT_PCT = Decimal(os.getenv("RISK_SECTOR_LIMIT_PCT", "0.30"))
 RISK_DRAWDOWN_PAUSE_PCT = Decimal(os.getenv("RISK_DRAWDOWN_PAUSE_PCT", "0.15"))
 RISK_DRAWDOWN_STOP_PCT = Decimal(os.getenv("RISK_DRAWDOWN_STOP_PCT", "0.25"))
 
+# LINE alerts (Phase 7 Part 2, confirmed with the user 2026-09-14). LINE
+# Notify shut down 2025-03-31 -- this is a channel access token for a LINE
+# Messaging API "Official Account" channel, used only for the broadcast
+# endpoint (see app/services/line_notifier.py). None -> alerts silently
+# disabled, same "optional, works without it" pattern as FINMIND_API_TOKEN.
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+
 # Passive benchmark for the alpha/excess-return calculation (spec Goal:
 # individual-stock activity is only worth the extra risk if it beats what
 # the user already holds passively). Must exist as an Asset row with

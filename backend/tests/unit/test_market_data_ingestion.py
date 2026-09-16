@@ -4,7 +4,7 @@ upsert semantics, partial failure isolation, rate-limit batch handling,
 demo->real transition, and dividend/valuation ingestion.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.models.asset import Asset
@@ -13,6 +13,7 @@ from app.models.institutional_flow import InstitutionalFlow
 from app.models.margin_trading import MarginTrading
 from app.models.monthly_revenue import MonthlyRevenue
 from app.models.price_history import PriceHistory
+from app.models.score import Score
 from app.providers.market_data_provider import (
     AssetNotFoundError,
     DividendDTO,
@@ -370,7 +371,10 @@ def test_cash_and_fund_assets_are_never_processed(db_session):
     result = service.update_all()  # no ticker filter -- would process everything eligible
 
     assert result.assets_processed == 0
-    assert provider.calls == []
+    # TAIEX (Phase 7 regime detection input) is always fetched regardless of
+    # whether any STOCK/ETF assets exist -- CASH/FUND themselves are still
+    # never processed.
+    assert provider.calls == ["TAIEX"]
 
 
 # ---- Phase 6: institutional flow ingestion --------------------------------------
@@ -523,3 +527,131 @@ def test_monthly_revenue_failure_does_not_block_price_ingestion(db_session):
     assert "3653" in result.succeeded
     assert db_session.query(PriceHistory).filter_by(asset_id=asset.id).count() == 1
     assert any("revenue" in w.reason.lower() for w in result.validation_warnings)
+
+
+# ---- Phase 7: TAIEX provisioning + composite scoring -----------------------------
+
+
+def test_first_update_creates_the_taiex_index_asset(db_session):
+    make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.update_all(tickers=["3653"])
+
+    taiex = db_session.query(Asset).filter_by(ticker="TAIEX").one()
+    assert taiex.asset_type == "INDEX"
+    assert taiex.is_demo_data is False
+
+
+def test_taiex_asset_is_not_duplicated_on_repeated_updates(db_session):
+    make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.update_all(tickers=["3653"])
+    service.update_all(tickers=["3653"])
+
+    assert db_session.query(Asset).filter_by(ticker="TAIEX").count() == 1
+
+
+def test_taiex_price_history_is_ingested_alongside_stock_prices(db_session):
+    make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+    provider.prices["TAIEX"] = [price_point(date(2026, 8, 28), close="17000")]
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.update_all(tickers=["3653"])
+
+    taiex = db_session.query(Asset).filter_by(ticker="TAIEX").one()
+    row = db_session.query(PriceHistory).filter_by(asset_id=taiex.id, date=date(2026, 8, 28)).one()
+    assert row.close == Decimal("17000")
+
+
+def test_taiex_rate_limit_stops_the_whole_batch(db_session):
+    make_asset(db_session, ticker="3653")
+    make_asset(db_session, ticker="3533")
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+    provider.prices["3533"] = [price_point(date(2026, 8, 28), close="300")]
+    provider.prices["TAIEX"] = RateLimitError("quota exceeded")
+
+    service = MarketDataIngestionService(db_session, provider)
+    result = service.update_all(tickers=["3653", "3533"])
+
+    assert result.status == "rate_limited"
+    assert result.succeeded == []
+    failed_tickers = {f.ticker for f in result.failed}
+    assert failed_tickers == {"TAIEX", "3653", "3533"}
+    # Neither real ticker was ever actually called -- the batch stopped
+    # before the per-asset loop began.
+    assert "3653" not in provider.calls
+    assert "3533" not in provider.calls
+
+
+def test_successful_ingestion_computes_and_stores_a_score(db_session):
+    asset = make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]
+    provider.valuations["3653"] = ValuationDTO(
+        date=date(2026, 8, 28), pe_ratio=Decimal("10"), pb_ratio=Decimal("1"), dividend_yield=None,
+        market_cap=None, shares_outstanding=None, source="FINMIND",
+    )
+
+    service = MarketDataIngestionService(db_session, provider)
+    result = service.update_all(tickers=["3653"])
+
+    assert "3653" in result.succeeded
+    row = db_session.query(Score).filter_by(asset_id=asset.id, date=date(2026, 8, 28)).one()
+    assert row.value_score == Decimal("100.00")
+    assert row.source == "CALCULATED"
+
+
+# ---- LINE alerts (Phase 7 Part 2) ------------------------------------------
+
+
+class FakeLineNotifier:
+    """Stands in for the real LineNotifier -- records every broadcast call
+    instead of making an HTTP request, so the ingestion test can assert on
+    exactly what would have been sent without a token/mocked transport."""
+
+    def __init__(self):
+        self.messages: list[str] = []
+
+    def broadcast(self, text: str) -> None:
+        self.messages.append(text)
+
+    def close(self) -> None:
+        pass
+
+
+def test_line_alert_sent_when_a_signal_is_bullish(db_session):
+    asset = make_asset(db_session)
+    provider = FakeProvider()
+    # A clear uptrend -- PRICE_ABOVE_SMA20/60, RSI, and MACD should all come
+    # back BULLISH once enough history exists.
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.line_notifier = FakeLineNotifier()
+    service.update_all(tickers=["3653"])
+
+    assert len(service.line_notifier.messages) == 1
+    message = service.line_notifier.messages[0]
+    assert "3653" in message
+    assert "BULLISH" in message
+
+
+def test_no_line_alert_when_everything_neutral_or_unavailable(db_session):
+    asset = make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]  # single point -- every technical signal UNAVAILABLE
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.line_notifier = FakeLineNotifier()
+    service.update_all(tickers=["3653"])
+
+    assert service.line_notifier.messages == []

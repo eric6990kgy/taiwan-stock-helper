@@ -12,7 +12,9 @@ import type {
   PricePoint,
   ResearchPage,
   Risk,
+  Score,
   ScreenerResult,
+  SignalResult,
   TechnicalIndicators,
   Thesis,
   Transaction,
@@ -120,6 +122,11 @@ export const researchApi = {
     request<MonthlyRevenue[]>(`/api/research/${encodeURIComponent(ticker)}/revenue`),
   technicalIndicators: (ticker: string, asOf?: string) =>
     request<TechnicalIndicators>(`/api/research/${encodeURIComponent(ticker)}/technical${qs({ as_of: asOf })}`),
+  score: (ticker: string) => request<Score | null>(`/api/research/${encodeURIComponent(ticker)}/score`),
+  scoreHistory: (ticker: string, range?: string) =>
+    request<Score[]>(`/api/research/${encodeURIComponent(ticker)}/scores${qs({ range })}`),
+  signals: (ticker: string, asOf?: string) =>
+    request<SignalResult>(`/api/research/${encodeURIComponent(ticker)}/signals${qs({ as_of: asOf })}`),
 };
 
 // ---- Watchlist ------------------------------------------------------------------
@@ -168,6 +175,7 @@ export const screenerApi = {
     rsi_lt?: number;
     rsi_gt?: number;
     above_sma_20?: boolean;
+    composite_score_gt?: number;
   }) => request<ScreenerResult[]>(`/api/screener${qs(params)}`),
 };
 

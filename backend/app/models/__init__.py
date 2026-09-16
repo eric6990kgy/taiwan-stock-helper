@@ -12,6 +12,7 @@ from app.models.dividend import Dividend
 from app.models.institutional_flow import InstitutionalFlow
 from app.models.margin_trading import MarginTrading
 from app.models.monthly_revenue import MonthlyRevenue
+from app.models.score import Score
 
 __all__ = [
     "Base",
@@ -28,4 +29,5 @@ __all__ = [
     "InstitutionalFlow",
     "MarginTrading",
     "MonthlyRevenue",
+    "Score",
 ]

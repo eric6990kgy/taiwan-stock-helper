@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DemoDataBadge, ThesisStatusBadge } from "../components/Badges";
+import { CompositeScorePanel } from "../components/CompositeScorePanel";
 import { Field, inputClass, PrimaryButton, SecondaryButton } from "../components/form";
 import { InstitutionalFlowPanel } from "../components/InstitutionalFlowPanel";
 import { MarginTradingPanel } from "../components/MarginTradingPanel";
@@ -7,6 +8,7 @@ import { Money, Percent } from "../components/Money";
 import { MonthlyRevenuePanel } from "../components/MonthlyRevenuePanel";
 import { PriceChart } from "../components/PriceChart";
 import { QueryState } from "../components/QueryState";
+import { SignalsPanel } from "../components/SignalsPanel";
 import { TechnicalIndicatorsPanel } from "../components/TechnicalIndicatorsPanel";
 import { useAssets } from "../features/transactions/hooks";
 import {
@@ -15,6 +17,9 @@ import {
   useMonthlyRevenue,
   usePrices,
   useResearchPage,
+  useScore,
+  useScoreHistory,
+  useSignals,
   useTechnicalIndicators,
   useUpsertThesis,
 } from "../features/research/hooks";
@@ -38,9 +43,17 @@ export function Research() {
   const researchQuery = useResearchPage(ticker);
   const pricesQuery = usePrices(ticker, range);
   const technicalQuery = useTechnicalIndicators(ticker);
+  const scoreQuery = useScore(ticker);
+  const scoreHistoryQuery = useScoreHistory(ticker);
+  const signalsQuery = useSignals(ticker);
   const institutionalQuery = useInstitutionalFlows(ticker);
   const marginQuery = useMarginTrading(ticker);
   const revenueQuery = useMonthlyRevenue(ticker);
+
+  const scorePanelData =
+    scoreQuery.data !== undefined && scoreHistoryQuery.data !== undefined
+      ? { score: scoreQuery.data, history: scoreHistoryQuery.data }
+      : undefined;
 
   return (
     <div className="flex flex-col gap-6">
@@ -134,6 +147,30 @@ export function Research() {
                 data={technicalQuery.data}
               >
                 {(data) => <TechnicalIndicatorsPanel data={data} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Composite Score</h2>
+              <QueryState
+                isLoading={scoreQuery.isLoading || scoreHistoryQuery.isLoading}
+                isError={scoreQuery.isError || scoreHistoryQuery.isError}
+                error={scoreQuery.error ?? scoreHistoryQuery.error}
+                data={scorePanelData}
+              >
+                {(data) => <CompositeScorePanel score={data.score} history={data.history} />}
+              </QueryState>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Signals</h2>
+              <QueryState
+                isLoading={signalsQuery.isLoading}
+                isError={signalsQuery.isError}
+                error={signalsQuery.error}
+                data={signalsQuery.data}
+              >
+                {(data) => <SignalsPanel data={data} />}
               </QueryState>
             </section>
 

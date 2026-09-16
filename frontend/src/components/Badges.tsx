@@ -1,4 +1,4 @@
-import type { ThesisStatus, WatchlistStatus } from "../types/api";
+import type { Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
 
 export function DemoDataBadge() {
   return (
@@ -42,6 +42,48 @@ export function ThesisStatusBadge({ status }: { status: ThesisStatus }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${THESIS_STATUS_STYLES[status]}`}>
       {status.replace("_", " ")}
+    </span>
+  );
+}
+
+const REGIME_STYLES: Record<NonNullable<Score["regime"]>, string> = {
+  BULL: "bg-green-50 text-green-700 ring-green-200",
+  BEAR: "bg-red-50 text-red-600 ring-red-200",
+  NEUTRAL: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+/** The TAIEX-derived market regime used to weight Phase 7's composite
+ * score -- null (rendered "Regime unknown") means TAIEX history wasn't
+ * available yet when this score was computed. */
+export function RegimeBadge({ regime }: { regime: Score["regime"] }) {
+  if (regime === null) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-slate-200">
+        Regime unknown
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${REGIME_STYLES[regime]}`}>
+      {regime}
+    </span>
+  );
+}
+
+const SIGNAL_STATUS_STYLES: Record<SignalStatus, string> = {
+  BULLISH: "bg-green-50 text-green-700 ring-green-200",
+  BEARISH: "bg-red-50 text-red-600 ring-red-200",
+  NEUTRAL: "bg-slate-100 text-slate-600 ring-slate-200",
+  UNAVAILABLE: "bg-slate-50 text-slate-400 ring-slate-200",
+};
+
+/** BULLISH/BEARISH/NEUTRAL/UNAVAILABLE -- a signal's own reading, never a
+ * BUY/SELL instruction (Phase 7 Part 2). Shared by SignalsPanel for both
+ * the per-signal badges and the "Overall" summary badge. */
+export function SignalStatusBadge({ status }: { status: SignalStatus }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${SIGNAL_STATUS_STYLES[status]}`}>
+      {status}
     </span>
   );
 }

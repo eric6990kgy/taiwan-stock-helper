@@ -107,3 +107,44 @@ def test_screener_foreign_net_buy_filter_matches_once_data_is_ingested(client):
 
     resp_too_high = client.get("/api/screener?foreign_net_buy_gt=9999999")
     assert "3653" not in {r["ticker"] for r in resp_too_high.json()}
+
+
+def test_screener_composite_score_filter_reads_the_latest_persisted_score(client):
+    """composite_score_gt reads whatever was last computed by Phase 7's
+    scoring service -- never recomputed by the screener itself."""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.api.deps import get_db
+    from app.main import app
+    from app.models.score import Score
+    from app.repositories.asset_repository import AssetRepository
+
+    db = next(app.dependency_overrides[get_db]())
+    asset = AssetRepository(db).get_by_ticker("3653")
+    db.add(
+        Score(
+            asset_id=asset.id,
+            date=date(2026, 8, 28),
+            composite_score=Decimal("75.00"),
+            missing_components="",
+            source="CALCULATED",
+        )
+    )
+    db.commit()
+    db.close()
+
+    resp = client.get("/api/screener?composite_score_gt=50")
+    assert resp.status_code == 200
+    matching = next(r for r in resp.json() if r["ticker"] == "3653")
+    assert matching["composite_score"] == "75.00"
+
+    resp_too_high = client.get("/api/screener?composite_score_gt=90")
+    assert "3653" not in {r["ticker"] for r in resp_too_high.json()}
+
+
+def test_screener_composite_score_absent_when_no_score_yet_and_filter_unused(client):
+    resp = client.get("/api/screener")
+    assert resp.status_code == 200
+    for r in resp.json():
+        assert r["composite_score"] is None

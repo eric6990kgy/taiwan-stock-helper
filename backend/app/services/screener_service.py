@@ -9,26 +9,19 @@ inventing the number would be worse than refusing the filter.
 """
 
 from app.analytics import technical
+from app.analytics.fundamentals_growth import revenue_growth_yoy
 from app.providers.market_data_provider import AssetNotFoundError, MarketDataProvider
 from app.repositories.asset_repository import AssetRepository
+from app.repositories.score_repository import ScoreRepository
 from app.schemas.screener import ScreenerResult
 
 UNSUPPORTED_FILTERS = ("market_cap_gt", "dividend_yield_gt")
 
 
-def _revenue_growth_yoy(fundamentals: list) -> object:
-    rows = sorted((f for f in fundamentals if f.revenue is not None), key=lambda f: f.period)
-    if len(rows) < 2:
-        return None
-    previous, latest = rows[-2], rows[-1]
-    if previous.revenue == 0:
-        return None
-    return (latest.revenue - previous.revenue) / previous.revenue
-
-
 class ScreenerService:
     def __init__(self, db, market_data: MarketDataProvider):
         self.assets = AssetRepository(db)
+        self.scores_repo = ScoreRepository(db)
         self.market_data = market_data
 
     def screen(
@@ -42,6 +35,7 @@ class ScreenerService:
         rsi_lt=None,
         rsi_gt=None,
         above_sma_20=None,
+        composite_score_gt=None,
     ) -> list[ScreenerResult]:
         if market_cap_gt is not None or dividend_yield_gt is not None:
             raise ValueError(
@@ -62,7 +56,7 @@ class ScreenerService:
             ttm = next((f for f in fundamentals if f.period == "TTM"), None)
             roe_pct = (ttm.roe * 100) if ttm and ttm.roe is not None else None
             pe_ratio = (quote.price / ttm.eps) if ttm and ttm.eps not in (None, 0) else None
-            growth_pct = _revenue_growth_yoy(fundamentals)
+            growth_pct = revenue_growth_yoy(fundamentals)
             growth_pct = (growth_pct * 100) if growth_pct is not None else None
 
             # Only pay for institutional-flow/technical-indicator data when a
@@ -78,6 +72,12 @@ class ScreenerService:
             if rsi_lt is not None or rsi_gt is not None or above_sma_20 is not None:
                 rsi_14, above_sma20_flag = _latest_rsi_and_sma_flag(self.market_data, asset.ticker)
 
+            # Reads the latest *persisted* score (Phase 7) -- never
+            # recomputed here, same "only pay for it if requested" guard.
+            composite_score = None
+            if composite_score_gt is not None:
+                composite_score = _latest_composite_score(self.scores_repo, asset.id)
+
             if revenue_growth_gt is not None and (growth_pct is None or growth_pct <= revenue_growth_gt):
                 continue
             if roe_gt is not None and (roe_pct is None or roe_pct <= roe_gt):
@@ -92,6 +92,8 @@ class ScreenerService:
                 continue
             if above_sma_20 is not None and (above_sma20_flag is None or above_sma20_flag != above_sma_20):
                 continue
+            if composite_score_gt is not None and (composite_score is None or composite_score <= composite_score_gt):
+                continue
 
             results.append(
                 ScreenerResult(
@@ -103,10 +105,16 @@ class ScreenerService:
                     foreign_net_buy=foreign_net_buy,
                     rsi_14=rsi_14,
                     above_sma_20=above_sma20_flag,
+                    composite_score=composite_score,
                     meets_criteria=True,
                 )
             )
         return results
+
+
+def _latest_composite_score(scores_repo: ScoreRepository, asset_id: int):
+    rows = scores_repo.range(asset_id)
+    return rows[-1].composite_score if rows else None
 
 
 def _latest_foreign_net_buy(market_data: MarketDataProvider, ticker: str) -> int | None:

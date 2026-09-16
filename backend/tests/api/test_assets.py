@@ -6,6 +6,26 @@ def test_list_assets_returns_seeded_assets(client):
     assert "GLOBAL-ETF-01" in tickers
 
 
+def test_list_assets_excludes_index_assets(client):
+    """TAIEX (asset_type=INDEX, Phase 7 regime-detection bookkeeping) must
+    never appear in this endpoint -- it feeds every ticker/asset picker in
+    the frontend (Research, Watchlist, Transactions), and TAIEX is never a
+    real holding or research target."""
+    from app.api.deps import get_db
+    from app.main import app
+    from app.repositories.asset_repository import AssetRepository
+
+    db = next(app.dependency_overrides[get_db]())
+    AssetRepository(db).create(ticker="TAIEX", name="TAIEX", asset_type="INDEX", currency="TWD", is_demo_data=False)
+    db.commit()
+    db.close()
+
+    resp = client.get("/api/assets")
+    assert resp.status_code == 200
+    tickers = {a["ticker"] for a in resp.json()}
+    assert "TAIEX" not in tickers
+
+
 def test_get_asset_by_ticker(client):
     resp = client.get("/api/assets/3653")
     assert resp.status_code == 200
