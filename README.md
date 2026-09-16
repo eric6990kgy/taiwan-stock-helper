@@ -10,6 +10,11 @@ for the research-only comparison against six external Taiwan-stock/quant
 GitHub projects that informed the Phase 6 priority ranking (institutional
 flow, margin trading, monthly revenue, technical indicators).
 
+See [`DEVLOG.md`](DEVLOG.md) for the day-by-day history of every phase —
+what was built, what was decided and why, bugs found during review, and
+informal research (backtesting, strategy tuning) that never became a
+shipped feature.
+
 ## Status: Phase 8 complete — Risk-Gated Recommendation Engine
 
 Full stack usable end-to-end from a browser. Beyond composite scoring,
@@ -447,6 +452,31 @@ candidate pool here (`scripts/seed_watchlist_20.py`).
   frontend tests** (bringing the total to 79 — 548 overall). New Alembic
   migration (`3f4678288422`, adds `strategy_versions`/`signal_snapshots`/
   `recommendations`/`pending_strategy_changes`) verified from a clean DB.
+
+## Operational fixes (2026-09-16, post-Phase 8)
+
+- **Transactions delete no longer fails silently** — a delete rejected by
+  the insufficient-shares replay check (or any other error) now shows the
+  error inline next to the row instead of doing nothing.
+- **Two live data-integrity bugs found and fixed** in the original demo
+  dataset, both traced to `seed.py`'s fixture data never being fully
+  superseded once real ingestion arrived for those 7 tickers — see
+  `DEVLOG.md` for the full root-cause writeup. Both had been silently
+  feeding wrong values into the Research and Recommendations pages since
+  Phase 7 shipped, not just backtests:
+  - 14 stale weekend `MOCK` price rows (seed data filled every calendar
+    day; real ingestion only touches trading days) — deleted, along with
+    the `Score` rows computed from them.
+  - 7 stale `Fundamentals(period="TTM", source="MOCK")` rows that sorted
+    alphabetically *after* real quarterly periods (`"TTM" > "2026Q2"` as
+    strings) and were being read as "the latest quarter," producing a
+    fake ~-90% revenue-growth reading for every demo ticker — deleted.
+- **Informal backtesting/strategy-tuning research** exists (forward vs.
+  inverted signal-following, fundamentals-based screening, profit
+  factor/drawdown analysis) — see `DEVLOG.md`'s 2026-09-16 entries. All
+  of it is scratchpad-only exploration against the app's real signal
+  engine; **none of it is a shipped feature**, and no `StrategyVersion`
+  has been changed based on it.
 
 ## Not built yet
 
