@@ -13,14 +13,13 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.analytics import signals as signal_fns
+from app.analytics.signal_rules import DEFAULT_RULES, SignalRules
 from app.analytics.signal_types import Signal, SignalResult
 from app.providers.market_data_provider import AssetNotFoundError
 from app.providers.mock_provider import MockMarketDataProvider
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.score_repository import ScoreRepository
 from app.services.exceptions import NotFoundError
-
-INSTITUTIONAL_WINDOW = 5
 
 
 class SignalService:
@@ -29,7 +28,7 @@ class SignalService:
         self.assets = AssetRepository(db)
         self.scores_repo = ScoreRepository(db)
 
-    def get_signals(self, ticker: str, as_of: date | None = None) -> SignalResult:
+    def get_signals(self, ticker: str, as_of: date | None = None, rules: SignalRules = DEFAULT_RULES) -> SignalResult:
         asset = self.assets.get_by_ticker(ticker)
         if asset is None:
             raise NotFoundError(f"Unknown ticker: {ticker!r}")
@@ -49,15 +48,17 @@ class SignalService:
             effective_as_of = max((p.date for p in price_points), default=date.today())
 
         signal_list: list[Signal] = [
-            signal_fns.price_above_sma_signal(price_points, 20, effective_as_of),
-            signal_fns.price_above_sma_signal(price_points, 60, effective_as_of),
-            signal_fns.rsi_bullish_signal(price_points, effective_as_of),
+            signal_fns.price_above_sma_signal(price_points, rules.sma_short, effective_as_of),
+            signal_fns.price_above_sma_signal(price_points, rules.sma_long, effective_as_of),
+            signal_fns.rsi_bullish_signal(price_points, effective_as_of, rules.rsi_period),
             signal_fns.macd_bullish_signal(price_points, effective_as_of),
         ]
 
         flows = self.market_data.get_institutional_flows(ticker, end=effective_as_of)
-        signal_list.append(signal_fns.foreign_net_buying_signal(flows, effective_as_of, INSTITUTIONAL_WINDOW))
-        signal_list.append(signal_fns.investment_trust_net_buying_signal(flows, effective_as_of, INSTITUTIONAL_WINDOW))
+        signal_list.append(signal_fns.foreign_net_buying_signal(flows, effective_as_of, rules.institutional_window))
+        signal_list.append(
+            signal_fns.investment_trust_net_buying_signal(flows, effective_as_of, rules.institutional_window)
+        )
 
         fundamentals = self.market_data.get_fundamentals(ticker)
         signal_list.append(signal_fns.revenue_growth_positive_signal(fundamentals, effective_as_of))
@@ -66,7 +67,11 @@ class SignalService:
         score_row = self._latest_score(asset.id, effective_as_of)
         composite_score = score_row.composite_score if score_row is not None else None
         regime = score_row.regime if score_row is not None else None
-        signal_list.append(signal_fns.composite_score_signal(composite_score, effective_as_of))
+        signal_list.append(
+            signal_fns.composite_score_signal(
+                composite_score, effective_as_of, rules.composite_bullish, rules.composite_bearish
+            )
+        )
 
         return SignalResult(
             ticker=ticker,

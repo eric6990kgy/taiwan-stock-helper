@@ -6,6 +6,8 @@ const NAV_ITEMS = [
   { to: "/transactions", label: "Transactions" },
   { to: "/research", label: "Research" },
   { to: "/watchlist", label: "Watchlist" },
+  { to: "/recommendations", label: "Recommendations" },
+  { to: "/strategy", label: "Strategy" },
   { to: "/settings", label: "Settings" },
 ];
 

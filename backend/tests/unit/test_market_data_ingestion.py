@@ -14,6 +14,7 @@ from app.models.margin_trading import MarginTrading
 from app.models.monthly_revenue import MonthlyRevenue
 from app.models.price_history import PriceHistory
 from app.models.score import Score
+from app.models.watchlist import Watchlist
 from app.providers.market_data_provider import (
     AssetNotFoundError,
     DividendDTO,
@@ -92,6 +93,16 @@ def make_asset(db, ticker="3653", is_demo_data=True) -> Asset:
     db.add(asset)
     db.flush()
     return asset
+
+
+def add_to_watchlist(db, asset, status="WATCHING") -> Watchlist:
+    """RecommendationService's daily scan (Phase 8) only ever looks at
+    watchlist entries -- an asset absent from watchlist never gets a
+    Recommendation/LINE alert, regardless of its signals."""
+    entry = Watchlist(asset_id=asset.id, status=status)
+    db.add(entry)
+    db.flush()
+    return entry
 
 
 def price_point(d: date, close="100", **overrides) -> PricePointDTO:
@@ -628,13 +639,50 @@ class FakeLineNotifier:
         pass
 
 
-def test_line_alert_sent_when_a_signal_is_bullish(db_session):
+def test_no_line_alert_on_the_first_ever_scan(db_session):
+    """The first scan only establishes a signal-status baseline (Phase 8's
+    SignalSnapshot) -- there's nothing to diff against yet, so it must
+    never fire an alert on day one regardless of what the signals read."""
     asset = make_asset(db_session)
+    add_to_watchlist(db_session, asset)
     provider = FakeProvider()
-    # A clear uptrend -- PRICE_ABOVE_SMA20/60, RSI, and MACD should all come
-    # back BULLISH once enough history exists.
     provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
 
+    service = MarketDataIngestionService(db_session, provider)
+    service.line_notifier = FakeLineNotifier()
+    service.update_all(tickers=["3653"])
+
+    assert service.line_notifier.messages == []
+
+
+def test_no_line_alert_when_asset_is_not_on_the_watchlist(db_session):
+    """A ticker with no watchlist entry never gets scanned at all -- no
+    Recommendation, no LINE alert, no matter how its signals read."""
+    make_asset(db_session)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
+
+    service = MarketDataIngestionService(db_session, provider)
+    service.line_notifier = FakeLineNotifier()
+    service.update_all(tickers=["3653"])
+
+    assert service.line_notifier.messages == []
+
+
+def test_line_alert_sent_only_when_signal_status_actually_changes(db_session):
+    asset = make_asset(db_session)
+    add_to_watchlist(db_session, asset)
+    provider = FakeProvider()
+    # First scan: flat prices -- establishes a NEUTRAL baseline, no alert.
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close="100") for i in range(65)]
+    service = MarketDataIngestionService(db_session, provider)
+    service.line_notifier = FakeLineNotifier()
+    service.update_all(tickers=["3653"])
+    assert service.line_notifier.messages == []
+
+    # Second scan: a clear uptrend -- overall status flips to BULLISH, a
+    # real change from the first scan's baseline -- one alert, not zero.
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
     service = MarketDataIngestionService(db_session, provider)
     service.line_notifier = FakeLineNotifier()
     service.update_all(tickers=["3653"])
@@ -644,14 +692,10 @@ def test_line_alert_sent_when_a_signal_is_bullish(db_session):
     assert "3653" in message
     assert "BULLISH" in message
 
-
-def test_no_line_alert_when_everything_neutral_or_unavailable(db_session):
-    asset = make_asset(db_session)
-    provider = FakeProvider()
-    provider.prices["3653"] = [price_point(date(2026, 8, 28), close="650")]  # single point -- every technical signal UNAVAILABLE
-
+    # Third scan with the exact same (already-BULLISH) data: no further
+    # change, so no further alert -- this is the "only on change" upgrade
+    # over Phase 7's "fires every run" LINE alerts.
     service = MarketDataIngestionService(db_session, provider)
     service.line_notifier = FakeLineNotifier()
     service.update_all(tickers=["3653"])
-
     assert service.line_notifier.messages == []

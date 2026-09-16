@@ -1,14 +1,14 @@
 """LineNotifier tests -- all HTTP calls mocked with httpx.MockTransport, no
 real network access, same pattern as test_finmind_normalization.py."""
 
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 import httpx
 import pytest
 
-from app.analytics.signal_types import Signal
-from app.services.line_notifier import LineNotifier, LineNotifyError, format_signal_alert
+from app.services.line_notifier import LineNotifier, LineNotifyError, format_recommendation_alert
 
 
 def make_client(handler) -> httpx.Client:
@@ -63,30 +63,62 @@ def test_network_failure_raises_line_notify_error():
         notifier.broadcast("hello")
 
 
-# ---- format_signal_alert ----------------------------------------------------
+# ---- format_recommendation_alert -------------------------------------------
 
 
-def _sig(id_, status, explanation="因為"):
-    return Signal(id=id_, category="TECHNICAL", name=id_, status=status, value=None, threshold=None, as_of=date(2026, 9, 14), explanation=explanation, source="CALCULATED")
+@dataclass
+class FakeRecommendation:
+    action: str
+    previous_status: str | None
+    new_status: str
+    triggered_signals: list = field(default_factory=list)
+    risk_blocked: bool = False
+    risk_block_reason: str | None = None
+    created_at: datetime = datetime(2026, 9, 14, 18, 0, 0)
 
 
-def test_format_signal_alert_none_when_everything_neutral_or_unavailable():
-    sigs = [_sig("PRICE_ABOVE_SMA20", "NEUTRAL"), _sig("RSI_BULLISH", "UNAVAILABLE")]
-    assert format_signal_alert("2330", "台積電", date(2026, 9, 14), sigs, None, None) is None
-
-
-def test_format_signal_alert_lists_only_non_neutral_signals():
-    sigs = [
-        _sig("PRICE_ABOVE_SMA20", "BULLISH", "股價站上20日均線"),
-        _sig("REVENUE_GROWTH_POSITIVE", "BEARISH", "營收年增率為負"),
-        _sig("RSI_BULLISH", "NEUTRAL"),
-        _sig("COMPOSITE_SCORE", "BULLISH", "綜合評分達標"),
-    ]
-    message = format_signal_alert("2330", "台積電", date(2026, 9, 14), sigs, Decimal("68.2"), "BULL")
-
+def test_format_recommendation_alert_includes_ticker_and_action_label():
+    rec = FakeRecommendation(action="CONSIDER_INCREASE", previous_status="NEUTRAL", new_status="BULLISH")
+    message = format_recommendation_alert("2330", "台積電", rec, None, None)
     assert "2330 台積電" in message
-    assert "PRICE_ABOVE_SMA20 BULLISH -- 股價站上20日均線" in message
+    assert "考慮增加關注度" in message
+    assert "NEUTRAL → BULLISH" in message
+
+
+def test_format_recommendation_alert_lists_triggered_signals():
+    rec = FakeRecommendation(
+        action="CONSIDER_DECREASE",
+        previous_status="NEUTRAL",
+        new_status="BEARISH",
+        triggered_signals=[
+            {"id": "REVENUE_GROWTH_POSITIVE", "status": "BEARISH", "explanation": "營收年增率為負"},
+        ],
+    )
+    message = format_recommendation_alert("2330", "台積電", rec, None, None)
     assert "REVENUE_GROWTH_POSITIVE BEARISH -- 營收年增率為負" in message
-    assert "RSI_BULLISH" not in message
-    assert "綜合分數 68.2/100 (BULLISH)" in message
+
+
+def test_format_recommendation_alert_includes_composite_score_and_regime():
+    rec = FakeRecommendation(action="WATCH", previous_status="BULLISH", new_status="NEUTRAL")
+    message = format_recommendation_alert("2330", "台積電", rec, Decimal("68.2"), "BULL")
+    assert "綜合分數 68.2/100" in message
     assert "大盤 BULL" in message
+
+
+def test_format_recommendation_alert_flags_risk_blocked_recommendations():
+    rec = FakeRecommendation(
+        action="CONSIDER_INCREASE",
+        previous_status="NEUTRAL",
+        new_status="BULLISH",
+        risk_blocked=True,
+        risk_block_reason="2330 目前部位權重 16.0%，已達或超過個股上限 15.0%。",
+    )
+    message = format_recommendation_alert("2330", "台積電", rec, None, None)
+    assert "⚠️ 風控攔截" in message
+    assert "16.0%" in message
+
+
+def test_format_recommendation_alert_omits_risk_line_when_not_blocked():
+    rec = FakeRecommendation(action="CONSIDER_DECREASE", previous_status="BULLISH", new_status="BEARISH")
+    message = format_recommendation_alert("2330", "台積電", rec, None, None)
+    assert "⚠️" not in message

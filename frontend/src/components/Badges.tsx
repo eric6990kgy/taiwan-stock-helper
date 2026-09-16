@@ -1,4 +1,4 @@
-import type { Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
+import type { RecommendationAction, Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
 
 export function DemoDataBadge() {
   return (
@@ -84,6 +84,39 @@ export function SignalStatusBadge({ status }: { status: SignalStatus }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${SIGNAL_STATUS_STYLES[status]}`}>
       {status}
+    </span>
+  );
+}
+
+const ACTION_LABELS: Record<RecommendationAction, string> = {
+  CONSIDER_INCREASE: "Consider Increasing",
+  CONSIDER_DECREASE: "Consider Decreasing",
+  WATCH: "Watch",
+};
+
+const ACTION_STYLES: Record<RecommendationAction, string> = {
+  CONSIDER_INCREASE: "bg-green-50 text-green-700 ring-green-200",
+  CONSIDER_DECREASE: "bg-red-50 text-red-600 ring-red-200",
+  WATCH: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+/** Conditional language only (個股訊號引擎規格書 Phase B) -- never a BUY/SELL
+ * instruction. Phase 8's Recommendation.action. */
+export function ActionBadge({ action }: { action: RecommendationAction }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${ACTION_STYLES[action]}`}>
+      {ACTION_LABELS[action]}
+    </span>
+  );
+}
+
+/** Must never look like an ordinary recommendation at a glance (spec
+ * requirement) -- a distinct, loud treatment, not just another badge lost
+ * in a row of others. */
+export function RiskBlockedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-300">
+      ⚠ Risk Blocked
     </span>
   );
 }

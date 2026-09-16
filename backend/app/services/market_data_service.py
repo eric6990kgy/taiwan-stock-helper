@@ -25,10 +25,10 @@ from app.repositories.margin_trading_repository import MarginTradingRepository
 from app.repositories.monthly_revenue_repository import MonthlyRevenueRepository
 from app.repositories.price_repository import PriceRepository
 from app.schemas.market_data import MarketDataError, MarketDataUpdateResult
-from app.services.line_notifier import LineNotifier, LineNotifyError, format_signal_alert
+from app.services.line_notifier import LineNotifier, LineNotifyError, format_recommendation_alert
 from app.services.market_data_validation import PriceValidationError, validate_price_point
+from app.services.recommendation_service import RecommendationService
 from app.services.scoring_service import TAIEX_TICKER, ScoringService
-from app.services.signal_service import SignalService
 
 SOURCE = "FINMIND"
 INCREMENTAL_LOOKBACK_DAYS = 5  # small overlap window on repeat updates, to catch late corrections
@@ -57,7 +57,7 @@ class MarketDataIngestionService:
         self.margin_trading_repo = MarginTradingRepository(db)
         self.monthly_revenue_repo = MonthlyRevenueRepository(db)
         self.scoring_service = ScoringService(db)
-        self.signal_service = SignalService(db)
+        self.recommendation_service = RecommendationService(db)
         self.line_notifier = LineNotifier()
 
     def close(self) -> None:
@@ -184,6 +184,32 @@ class MarketDataIngestionService:
             except (AssetNotFoundError, ProviderError) as exc:
                 failed.append(MarketDataError(ticker=asset.ticker, reason=str(exc)))
                 continue
+
+        # Phase 8: one daily scan across the whole watchlist (not per-asset
+        # -- run_daily_scan() already loops it), risk-gated against Phase
+        # A's risk/drawdown before any recommendation is created. LINE
+        # alerts now fire per Recommendation row (only on an actual status
+        # change), replacing Phase 7's "fires every run" behavior. Reads
+        # only the local DB just written above, so nothing here raises
+        # RateLimitError -- best-effort like scoring above.
+        try:
+            outcomes = self.recommendation_service.run_daily_scan()
+        except AssetNotFoundError as exc:
+            outcomes = []
+            validation_warnings.append(MarketDataError(ticker="(scan)", reason=f"Daily scan unavailable: {exc}"))
+
+        for outcome in outcomes:
+            message = format_recommendation_alert(
+                outcome.ticker,
+                outcome.asset_name,
+                outcome.recommendation,
+                outcome.composite_score,
+                outcome.regime,
+            )
+            try:
+                self.line_notifier.broadcast(message)
+            except LineNotifyError as exc:
+                validation_warnings.append(MarketDataError(ticker=outcome.ticker, reason=f"LINE alert not sent: {exc}"))
 
         self.db.commit()
 
@@ -378,24 +404,6 @@ class MarketDataIngestionService:
             self.scoring_service.compute_and_store(asset.ticker, latest_written)
         except AssetNotFoundError as exc:
             warnings.append(MarketDataError(ticker=asset.ticker, reason=f"Score unavailable: {exc}"))
-
-        # LINE alert (added per user request, confirmed 2026-09-14): best-
-        # effort like the block above -- reads only the local DB (signals
-        # are computed on demand, never persisted), so the only way this
-        # can fail is the LINE broadcast HTTP call itself. No-token
-        # (LineNotifier.enabled is False) is the default, silent, expected
-        # state, not a warning. Triggers on ANY signal currently BULLISH/
-        # BEARISH, not a change-since-last-time comparison (accepted V1
-        # tradeoff -- see the plan's "LINE Alerts" section).
-        try:
-            result = self.signal_service.get_signals(asset.ticker)
-            message = format_signal_alert(
-                asset.ticker, asset.name, result.as_of, result.signals, result.composite_score, result.regime
-            )
-            if message is not None:
-                self.line_notifier.broadcast(message)
-        except LineNotifyError as exc:
-            warnings.append(MarketDataError(ticker=asset.ticker, reason=f"LINE alert not sent: {exc}"))
 
         # Demo -> real transition (Phase 5B decision 4): flips automatically
         # on the first successfully validated real record, preserving the

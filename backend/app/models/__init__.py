@@ -13,6 +13,10 @@ from app.models.institutional_flow import InstitutionalFlow
 from app.models.margin_trading import MarginTrading
 from app.models.monthly_revenue import MonthlyRevenue
 from app.models.score import Score
+from app.models.strategy_version import StrategyVersion
+from app.models.signal_snapshot import SignalSnapshot
+from app.models.recommendation import Recommendation
+from app.models.pending_strategy_change import PendingStrategyChange
 
 __all__ = [
     "Base",
@@ -30,4 +34,8 @@ __all__ = [
     "MarginTrading",
     "MonthlyRevenue",
     "Score",
+    "StrategyVersion",
+    "SignalSnapshot",
+    "Recommendation",
+    "PendingStrategyChange",
 ]

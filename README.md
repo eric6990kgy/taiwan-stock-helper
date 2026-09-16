@@ -10,15 +10,17 @@ for the research-only comparison against six external Taiwan-stock/quant
 GitHub projects that informed the Phase 6 priority ranking (institutional
 flow, margin trading, monthly revenue, technical indicators).
 
-## Status: Phase 7 complete — Composite Scoring + Signal Engine + LINE Alerts
+## Status: Phase 8 complete — Risk-Gated Recommendation Engine
 
-Full stack usable end-to-end from a browser. Beyond price/fundamentals/
-dividends/valuation (Phase 5B) and institutional flow/margin trading/
-monthly revenue/technical indicators (Phase 6), the app now computes a
-regime-aware composite score, a deterministic per-signal read (BULLISH/
-BEARISH/NEUTRAL/UNAVAILABLE — never a recommendation), and can ping your
-LINE when one fires, while execution stays entirely manual — see "What's
-implemented (Phase 7)" below.
+Full stack usable end-to-end from a browser. Beyond composite scoring,
+per-signal reads, and LINE alerts (Phase 7), the app now runs a daily
+change-only scan across a real 20-ticker watchlist, classifies each status
+change into conditional-language recommendations (never BUY/SELL), and
+checks every "consider increasing" recommendation against Phase A's risk/
+drawdown gate *before* showing it — never as an afterthought. A versioned,
+auditable strategy backs every recommendation, with small parameter tweaks
+auto-applying and bigger changes queued for your explicit confirmation —
+see "What's implemented (Phase 8)" below.
 
 ## Market Data
 
@@ -379,11 +381,67 @@ model.
   migration (`986c58d676b5`, adds `scores` + `INDEX` asset type) verified
   from a clean DB.
 
+## What's implemented (Phase 8 — Risk-Gated Recommendation Engine)
+
+Implements the external 個股訊號引擎規格書's **Phase B** ("個股推薦引擎規格書")
+directly inside this app — 看盤台 (a separate Artifact-based dashboard) is
+retired as both a viewing surface and a data source (its per-ticker
+analysis re-queries Claude live each refresh, exactly the token cost this
+repo's deterministic FinMind-API approach exists to avoid). Its 20-ticker
+candidate watchlist was pulled from its own database and is now the real
+candidate pool here (`scripts/seed_watchlist_20.py`).
+
+- **Strategy versioning** (`app/models/strategy_version.py`,
+  `app/services/strategy_service.py`): the signal engine's tunable
+  parameters (SMA periods, RSI period, institutional window, composite
+  score thresholds — `app/analytics/signal_rules.py`) are a versioned,
+  auditable record, not hardcoded literals. Exactly one version is
+  `ACTIVE`. A proposed change with the *same parameter keys* as the active
+  version (only values differ) is "small" and auto-applies immediately; a
+  change that adds/removes a key is "big" and goes into a
+  pending-confirmation queue instead (`PendingStrategyChange`) — never
+  silently promoted. Each version/proposal can carry a walk-forward
+  hit-rate backtest (`app/analytics/signal_backtest.py`, replays real
+  price history day-by-day using only data available that day — same
+  concept 看盤台's own client-side backtest used, reimplemented in Python).
+- **Daily change-only scan** (`app/services/recommendation_service.py`):
+  for every watchlist asset, computes today's signals with the active
+  strategy's rules and diffs the overall status against the last scan
+  (`SignalSnapshot`) — an unchanged ticker never produces a
+  `Recommendation` row. Wired into the existing manual "Update Market
+  Data" flow (still no scheduler this phase).
+- **Risk gate, not an afterthought**: every `CONSIDER_INCREASE`
+  recommendation is checked against Phase A's `/api/analytics/risk` and
+  `/api/analytics/drawdown` *before* it's created. A ticker/sector already
+  at or over its 15%/30% limit, or a portfolio in `PAUSE_NEW_POSITIONS`/
+  `HARD_STOP` drawdown, is marked `risk_blocked` with a reason — using
+  today's actual position/sector weight, since these recommendations carry
+  no order size to project a hypothetical post-trade weight from.
+  `CONSIDER_DECREASE`/`WATCH` are never gated (reducing/watching is always
+  allowed). LINE alerts (Phase 7) now fire per `Recommendation` created —
+  only on an actual status change, not every run.
+- **Conditional language only**: recommendations are `WATCH`/
+  `CONSIDER_INCREASE`/`CONSIDER_DECREASE` — never a BUY/SELL assertion,
+  same principle as Phase 7's signals.
+- **New pages**: Recommendations (grouped list, risk-blocked rows visually
+  distinct, expandable triggered-signal detail) and Strategy (active
+  version's rules, version history, pending-change queue with backtest
+  before/after and confirm/reject).
+- **Not built this phase**: no autonomous agent proposing strategy changes
+  (that's the external spec's own Phase C — a human, via
+  `POST /api/strategy/versions`, proposes changes this phase; the
+  versioning/queue infrastructure is what this phase delivers), no
+  scheduler (manual trigger only, consistent with the rest of the app).
+- **37 new backend tests** (bringing the total to 469) and **10 new
+  frontend tests** (bringing the total to 79 — 548 overall). New Alembic
+  migration (`3f4678288422`, adds `strategy_versions`/`signal_snapshots`/
+  `recommendations`/`pending_strategy_changes`) verified from a clean DB.
+
 ## Not built yet
 
 No scheduled/automatic market-data ingestion (manual "Update Market Data"
-only — LINE alerts above are wired into that same manual trigger, not a
-cron job), or actual trading of any kind. No general
+only — LINE alerts and the Phase 8 daily scan are both wired into that same
+manual trigger, not a cron job), or actual trading of any kind. No general
 historical-time-series-performance feature (the Phase A equity curve is
 purpose-built for drawdown/benchmark only — see above, not a reusable
 `/api/analytics/performance-over-time`). No market-cap/dividend-yield
@@ -394,15 +452,13 @@ Nano Investment has no official API/export/Open Banking path (confirmed in
 the Phase 5 Discovery Report) — its holdings are tracked via the existing
 `MANUAL_MARKET_VALUE` pattern, same as the Global ETF fund.
 
-As of Phase 7: no signal-status persistence (so LINE alerts fire on every
-"currently BULLISH/BEARISH" run, not just on a change since last time — an
-accepted V1 tradeoff, see the Signal Engine section above), no signal
-engine proper in the 個股訊號引擎規格書 sense (daily scan, strategy
-versioning, agent-driven iteration — that spec's Phase B/C, not started
-and not reconciled with this app's own Phase 7 naming), no backtesting, no
-AI research/narrative layer, no MOPS material-announcement data (FinMind
-doesn't have this dataset — needs a second provider against TWSE/TPEx's own
-OpenAPI, per the Phase 5 Discovery Report's documented fallback), no
-real-time data, no securities lending/industry-chain/ETF-specific datasets.
-See the Phase 6 report in project history for the full priority ranking on
+As of Phase 8: no autonomous agent iterating strategy versions (個股訊號引擎規格書's
+own Phase C — proposing a change is a human/API action this phase, not a
+background job), no backtesting beyond the walk-forward hit-rate check
+above (no full trading simulator), no AI research/narrative layer, no MOPS
+material-announcement data (FinMind doesn't have this dataset — needs a
+second provider against TWSE/TPEx's own OpenAPI, per the Phase 5 Discovery
+Report's documented fallback), no real-time data, no securities
+lending/industry-chain/ETF-specific datasets. See the Phase 6 report in
+project history for the full priority ranking on
 those, and the 個股訊號引擎規格書 for the signal-engine roadmap.

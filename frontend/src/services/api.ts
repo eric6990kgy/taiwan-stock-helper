@@ -7,14 +7,17 @@ import type {
   MarginTrading,
   MarketDataUpdateResult,
   MonthlyRevenue,
+  PendingStrategyChange,
   Performance,
   PortfolioSummary,
   PricePoint,
+  Recommendation,
   ResearchPage,
   Risk,
   Score,
   ScreenerResult,
   SignalResult,
+  StrategyVersion,
   TechnicalIndicators,
   Thesis,
   Transaction,
@@ -183,4 +186,24 @@ export const screenerApi = {
 
 export const marketDataApi = {
   update: () => request<MarketDataUpdateResult>("/api/market-data/update", { method: "POST" }),
+};
+
+// ---- Phase 8: risk-gated recommendation engine ----------------------------
+
+export const recommendationsApi = {
+  list: (since?: string) => request<Recommendation[]>(`/api/recommendations${qs({ since })}`),
+};
+
+export const strategyApi = {
+  listVersions: () => request<StrategyVersion[]>("/api/strategy/versions"),
+  proposeChange: (body: { proposed_rules: Record<string, unknown>; reason: string }) =>
+    request<StrategyVersion | PendingStrategyChange>("/api/strategy/versions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listPending: (status?: string) => request<PendingStrategyChange[]>(`/api/strategy/pending${qs({ status })}`),
+  confirmPending: (id: number) =>
+    request<StrategyVersion>(`/api/strategy/pending/${id}/confirm`, { method: "POST" }),
+  rejectPending: (id: number) =>
+    request<PendingStrategyChange>(`/api/strategy/pending/${id}/reject`, { method: "POST" }),
 };

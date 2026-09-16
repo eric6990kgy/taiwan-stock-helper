@@ -16,14 +16,17 @@ from app.api.routes import (
     import_export,
     market_data,
     portfolio,
+    recommendations,
     research,
     screener,
+    strategy,
     thesis,
     transactions,
     watchlist,
 )
 from app.providers.market_data_provider import AssetNotFoundError, ProviderError, RateLimitError
 from app.services.exceptions import DuplicateError, InvalidAmountError, NotFoundError, UnsupportedCurrencyError
+from app.services.strategy_service import InvalidStateError
 
 app = FastAPI(title="Personal Investment OS API", version="0.1.0")
 
@@ -58,6 +61,7 @@ async def duplicate_handler(request: Request, exc: DuplicateError):
 @app.exception_handler(MixedPositionError)
 @app.exception_handler(UnsupportedCurrencyError)
 @app.exception_handler(InvalidAmountError)
+@app.exception_handler(InvalidStateError)
 @app.exception_handler(ValueError)
 async def bad_request_handler(request: Request, exc: Exception):
     return _error(400, str(exc))
@@ -87,6 +91,8 @@ for router in (
     screener.router,
     import_export.router,
     market_data.router,
+    recommendations.router,
+    strategy.router,
 ):
     app.include_router(router)
 

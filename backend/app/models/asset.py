@@ -56,6 +56,8 @@ class Asset(Base):
     margin_trading_rows: Mapped[list["MarginTrading"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
     monthly_revenues: Mapped[list["MonthlyRevenue"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
     scores: Mapped[list["Score"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+    signal_snapshot: Mapped["SignalSnapshot"] = relationship(back_populates="asset", uselist=False, cascade="all, delete-orphan")
+    recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint(f"asset_type IN {ASSET_TYPES}", name="ck_assets_asset_type"),

@@ -345,6 +345,84 @@ export interface SignalResult {
   regime: "BULL" | "BEAR" | "NEUTRAL" | null;
 }
 
+// ---- Phase 8: risk-gated recommendation engine ----------------------------
+
+export type RecommendationAction = "WATCH" | "CONSIDER_INCREASE" | "CONSIDER_DECREASE";
+
+export interface TriggeredSignal {
+  id: string;
+  category: string;
+  name: string;
+  status: SignalStatus;
+  explanation: string;
+}
+
+/** Never a BUY/SELL instruction -- action is conditional language only
+ * (關注/考慮增加關注度/考慮減碼). risk_blocked/risk_block_reason are always
+ * present so a blocked recommendation can never be mistaken for a clear
+ * one. Only ever created when a ticker's overall signal status actually
+ * changed since the last scan -- an unchanged ticker never appears here. */
+export interface Recommendation {
+  id: number;
+  ticker: string;
+  asset_name: string;
+  action: RecommendationAction;
+  previous_status: SignalStatus | null;
+  new_status: SignalStatus;
+  triggered_signals: TriggeredSignal[];
+  risk_blocked: boolean;
+  risk_block_reason: string | null;
+  composite_score: string | null;
+  regime: "BULL" | "BEAR" | "NEUTRAL" | null;
+  strategy_version_id: number;
+  created_at: string;
+}
+
+export interface SignalRules {
+  sma_short: number;
+  sma_long: number;
+  rsi_period: number;
+  institutional_window: number;
+  composite_bullish: string;
+  composite_bearish: string;
+}
+
+export type StrategyVersionStatus = "ACTIVE" | "SUPERSEDED" | "ROLLED_BACK";
+export type StrategyChangeType = "AUTO_APPLIED" | "CONFIRMED";
+
+export interface StrategyVersion {
+  id: number;
+  version_number: number;
+  rules: Record<string, unknown>;
+  status: StrategyVersionStatus;
+  change_type: StrategyChangeType;
+  reason: string | null;
+  backtest_hit_rate: string | null;
+  backtest_n: number | null;
+  created_at: string;
+}
+
+export interface BacktestSummary {
+  hits: number;
+  n: number;
+  horizon: number;
+  deadzone_pct: string;
+  hit_rate: string | null;
+}
+
+export type PendingStrategyChangeStatus = "PENDING" | "CONFIRMED" | "REJECTED";
+
+export interface PendingStrategyChange {
+  id: number;
+  proposed_rules: Record<string, unknown>;
+  reason: string;
+  backtest_before: BacktestSummary | null;
+  backtest_after: BacktestSummary | null;
+  status: PendingStrategyChangeStatus;
+  created_at: string;
+  decided_at: string | null;
+}
+
 // ---- Market Data (Phase 5B) -------------------------------------------------
 
 export interface MarketDataUpdateError {

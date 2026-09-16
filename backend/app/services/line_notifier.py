@@ -68,34 +68,40 @@ class LineNotifier:
 
 
 # Chinese labels for the LINE message body -- kept separate from
-# Signal.name (English-facing, shown in the API/UI) so the two surfaces can
-# evolve independently.
+# Signal.name/Recommendation.action (English-facing, shown in the API/UI)
+# so the two surfaces can evolve independently.
 _SIGNAL_EMOJI = {"BULLISH": "🟢", "BEARISH": "🔴"}
+_ACTION_LABELS = {"CONSIDER_INCREASE": "考慮增加關注度", "CONSIDER_DECREASE": "考慮減碼", "WATCH": "關注"}
 
 
-def format_signal_alert(
+def format_recommendation_alert(
     ticker: str,
     asset_name: str,
-    as_of,
-    signals,
+    recommendation,
     composite_score,
     regime: str | None,
-) -> str | None:
-    """Builds the one-consolidated-message-per-asset LINE text (plan's
-    "Message shape"). Returns None when every signal is NEUTRAL/UNAVAILABLE
-    -- no message should be sent for an asset with nothing to report."""
-    non_neutral = [s for s in signals if s.status in _SIGNAL_EMOJI]
-    if not non_neutral:
-        return None
-
-    lines = [f"📊 {ticker} {asset_name} 訊號更新 ({as_of})"]
-    for s in non_neutral:
-        lines.append(f"{_SIGNAL_EMOJI[s.status]} {s.id} {s.status} -- {s.explanation}")
+) -> str:
+    """Builds the one-message-per-Recommendation LINE text (Phase 8) --
+    only called for a Recommendation that was actually just created (the
+    "only on change" upgrade over Phase 7's "fires every run"), so this
+    never returns None the way format_signal_alert did. A risk-blocked
+    recommendation gets an explicit ⚠️ line -- must never look like an
+    ordinary one at a glance (個股訊號引擎規格書 Phase B Sec.05 P0)."""
+    action_label = _ACTION_LABELS[recommendation.action]
+    transition = f"{recommendation.previous_status} → {recommendation.new_status}"
+    lines = [
+        f"📊 {ticker} {asset_name} 每日訊號 ({recommendation.created_at.date()})",
+        f"建議動作：{action_label}（{transition}）",
+    ]
+    for s in recommendation.triggered_signals:
+        emoji = _SIGNAL_EMOJI.get(s["status"], "")
+        lines.append(f"{emoji} {s['id']} {s['status']} -- {s['explanation']}")
 
     if composite_score is not None:
-        composite_signal = next((s for s in signals if s.id == "COMPOSITE_SCORE"), None)
-        status_part = f" ({composite_signal.status})" if composite_signal is not None else ""
         regime_part = f"　大盤 {regime}" if regime else ""
-        lines.append(f"綜合分數 {composite_score:.1f}/100{status_part}{regime_part}")
+        lines.append(f"綜合分數 {composite_score:.1f}/100{regime_part}")
+
+    if recommendation.risk_blocked:
+        lines.append(f"⚠️ 風控攔截：{recommendation.risk_block_reason}")
 
     return "\n".join(lines)
