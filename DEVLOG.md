@@ -1,5 +1,7 @@
 # Development Log
 
+*[繁體中文版](DEVLOG.zh-TW.md)*
+
 Chronological record of what was built, why, and what was learned — from
 day one through the most recent working session. `README.md` documents
 *what's built, as of now*; this file documents *how it got there and what

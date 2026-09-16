@@ -1,5 +1,7 @@
 # Personal Investment OS
 
+*[繁體中文版](README.zh-TW.md)*
+
 A single-user Portfolio Management + Equity Research + Investment Analytics
 system for tracking Taiwan-market individual stock positions and a global
 ETF / robo-invest allocation. See the architecture review (chat history /
