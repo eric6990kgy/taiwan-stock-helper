@@ -339,7 +339,7 @@ repo:
 
 ## 2026-09-17 — Phase 12: Gemini multi-agent research team
 
-**Commit:** pending (not committed as of this entry)
+**Commit:** [`7f32326`](../../commit/7f32326)
 
 You asked for a "team" of agents modeled on how a real brokerage research
 department is organized — a fundamental analyst, a technical analyst, and
