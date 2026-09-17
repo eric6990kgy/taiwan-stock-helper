@@ -107,6 +107,9 @@ def test_recommendations_endpoint_reflects_a_scan_triggered_by_market_data_updat
     assert body[0]["ticker"] == "9999"
     assert body[0]["action"] == "CONSIDER_INCREASE"
     assert body[0]["new_status"] == "BULLISH"
+    # Phase 12: always present, empty without GEMINI_API_KEY configured
+    # (the test environment never sets one) -- never absent from the payload.
+    assert body[0]["agent_analyses"] == []
 
 
 def test_recommendations_endpoint_since_filter(client, stub_provider):

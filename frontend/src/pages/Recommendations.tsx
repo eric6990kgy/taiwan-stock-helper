@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { ActionBadge, RiskBlockedBadge, SignalStatusBadge } from "../components/Badges";
+import { ActionBadge, AGENT_DETAIL_FIELD_LABELS, AGENT_ROLE_LABELS, RiskBlockedBadge, SignalStatusBadge } from "../components/Badges";
 import { QueryState } from "../components/QueryState";
 import { useRecommendations } from "../features/recommendations/hooks";
 import { formatMoney } from "../utils/decimal";
-import type { Recommendation } from "../types/api";
+import type { AgentAnalysis, Recommendation } from "../types/api";
 
 /** Every recommendation here already changed status since the last scan
  * (an unchanged ticker never appears) and, for CONSIDER_INCREASE, already
@@ -88,8 +88,45 @@ function RecommendationRow({ rec }: { rec: Recommendation }) {
             )}
             {new Date(rec.created_at).toLocaleString()}
           </p>
+
+          {rec.agent_analyses.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-500">Agent Research Opinions</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {rec.agent_analyses.map((a) => (
+                  <AgentAnalysisCard key={a.role} analysis={a} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AgentAnalysisCard({ analysis }: { analysis: AgentAnalysis }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-slate-700">{AGENT_ROLE_LABELS[analysis.role]}</span>
+        <span className="flex items-center gap-1">
+          <SignalStatusBadge status={analysis.call} />
+          <span className="text-xs text-slate-400">{analysis.confidence}%</span>
+        </span>
+      </div>
+      <table className="text-xs">
+        <tbody>
+          {Object.entries(analysis.details).map(([key, value]) => (
+            <tr key={key}>
+              <td className={`whitespace-nowrap py-0.5 pr-2 align-top ${key === "key_risk" ? "text-red-500" : "text-slate-400"}`}>
+                {AGENT_DETAIL_FIELD_LABELS[key] ?? key}
+              </td>
+              <td className={`py-0.5 align-top ${key === "key_risk" ? "text-red-600" : "text-slate-600"}`}>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

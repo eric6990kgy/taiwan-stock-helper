@@ -14,8 +14,10 @@ from app.providers.finmind_provider import FinMindProvider
 from app.providers.market_data_provider import MarketDataProvider
 from app.providers.mock_provider import MockMarketDataProvider
 from app.services.account_service import AccountService
+from app.services.agent_performance_service import AgentPerformanceService
 from app.services.analytics_service import AnalyticsService
 from app.services.asset_service import AssetService
+from app.services.gemini_client import GeminiClient
 from app.services.import_export_service import ImportExportService
 from app.services.journal_service import JournalService
 from app.services.market_data_service import MarketDataIngestionService
@@ -101,6 +103,10 @@ def get_journal_service(db: Session = Depends(get_db)) -> JournalService:
     return JournalService(db)
 
 
+def get_agent_performance_service(db: Session = Depends(get_db)) -> AgentPerformanceService:
+    return AgentPerformanceService(db)
+
+
 def get_screener_service(
     db: Session = Depends(get_db), market_data: MarketDataProvider = Depends(get_market_data_provider)
 ) -> ScreenerService:
@@ -122,7 +128,18 @@ def get_finmind_provider() -> Generator[FinMindProvider, None, None]:
         provider.close()
 
 
+def get_gemini_client() -> GeminiClient:
+    """Distinct seam from get_market_data_service's own construction --
+    lets API tests force this off via dependency override regardless of
+    what GEMINI_API_KEY happens to be set to in the local .env, same
+    reasoning as get_finmind_provider existing separately from the Mock
+    provider used everywhere else."""
+    return GeminiClient()
+
+
 def get_market_data_service(
-    db: Session = Depends(get_db), provider: FinMindProvider = Depends(get_finmind_provider)
+    db: Session = Depends(get_db),
+    provider: FinMindProvider = Depends(get_finmind_provider),
+    gemini_client: GeminiClient = Depends(get_gemini_client),
 ) -> MarketDataIngestionService:
-    return MarketDataIngestionService(db, provider)
+    return MarketDataIngestionService(db, provider, gemini_client=gemini_client)

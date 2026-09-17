@@ -48,5 +48,6 @@ class Recommendation(Base):
 
     asset: Mapped["Asset"] = relationship(back_populates="recommendations")
     outcome: Mapped["RecommendationOutcome"] = relationship(back_populates="recommendation", uselist=False)
+    agent_analyses: Mapped[list["AgentAnalysis"]] = relationship(back_populates="recommendation")
 
     __table_args__ = (CheckConstraint(f"action IN {RECOMMENDATION_ACTIONS}", name="ck_recommendations_action"),)

@@ -287,6 +287,90 @@ Artifact 做的儀表板，每次刷新都要即時重新查詢 Claude——正�
 
 ---
 
+## 2026-09-17 —— Phase 12：Gemini 多代理人研究團隊
+
+**Commit：** 尚未 commit（寫這篇條目時還沒送出）
+
+你要求做一個模仿真實券商研究部門分工的「團隊」——基本面研究員、技術面
+研究員、負責綜合判斷的角色——並且要有一套 KPI 制度，讓你分得出哪個
+agent 的意見真正值得聽。你選了 Gemini 而不是 Claude（理由是你在 Google
+Antigravity 已經有一套熟悉的多代理人人格系統），所以這個階段只做
+Gemini。
+
+從第一個階段沿用到現在、完全沒變的規則：**決定性的 Phase 8 引擎依然掌握
+真正的決定。** 這裡沒有任何東西讓 LLM 改變 `action`/`new_status`/
+`risk_blocked`——三個 Gemini agent 產生的是附掛在既有 `Recommendation`
+旁邊的研究意見，不是取代它。
+
+- **動手寫程式碼之前先驗證 SDK 用法，跟 `claude-api` skill 對 Claude API
+  一直堅持的紀律一樣。** 一開始的計畫假設要用 `client.interactions.create()`——
+  結果那其實是另一套完全不同、以 session/agent 為中心的介面（持久化的
+  Agent、webhook、trigger），不適合一次性的結構化輸出呼叫。實際在本機
+  安裝 `google-genai` 並檢查真正的 client 之後才動筆寫
+  `app/services/gemini_client.py`——正確的介面其實是
+  `client.models.generate_content()` 搭配 Pydantic 的 `response_schema`。
+  這個錯誤在寫任何正式程式碼*之前*就被抓到，不是事後才發現。
+- **`AgentResearchService`**（`app/services/agent_research_service.py`）：
+  基本面研究員跟技術面研究員直接沿用 `ResearchService` 既有的資料存取
+  方法（不新增查詢）；投資組合經理人額外看得到另外兩個角色自己的輸出，
+  加上決定性引擎已經做出的決定，當成固定的背景資訊——它可以評論或不同意
+  系統的判斷，但它自己的輸出永遠不會變成系統的判斷。每個角色各自獨立
+  失敗（`_safe_role`），一個角色回應失敗絕不會連帶讓另外兩個也不見。
+- **速率限制，是實際跑出來才發現的，不是事先預料到的。** 使用者開通
+  付費帳單之後的第一次真實掃描，還是全部以 `429`/`503` 失敗——Gemini
+  免費層把 `gemini-3.8-flash` 限制在每分鐘 5 次請求，而一次掃描只要有
+  幾檔股票訊號變化 × 3 個角色，一次爆發性送出就會直接超過這個上限。
+  後來確認只是帳單生效有延遲，帳單真正生效之後就正常了——但不管怎樣，
+  還是在 `GeminiClient` 加了真正的重試機制（先等 5 秒、再等 15 秒，只對
+  `429`/`503` 重試，`400`/認證錯誤不重試），因為即使是付費層，偶發性
+  限流仍然可能再發生。
+- **一個真的會影響到之後每次測試的隔離性 bug。** 一旦本機 `.env` 裡有
+  真的 `GEMINI_API_KEY`（現在這台開發機上會永久存在），任何呼叫
+  `MarketDataIngestionService.update_all()` 卻沒有明確替換掉
+  `agent_research_service` 的測試，都會在跑 `pytest` 時真的打出去、真的
+  被計費——不管是 API 測試還是原本完全沒預期會有真金鑰存在的既有單元
+  測試都會中獎。FinMind 那邊早就靠一個依賴注入介面
+  （`get_finmind_provider`，每個測試用 `StubProvider` 覆寫）解決過一樣的
+  問題——Gemini client 完全沒有對應的介面。用兩層修法解決：在
+  `app/api/deps.py` 加一個 `get_gemini_client()` 介面，串進
+  `MarketDataIngestionService.__init__`；另外因為單元測試是直接建構這個
+  service、完全跳過 API 層的依賴注入，所以又在 `tests/conftest.py`
+  （這個檔案在 `tests/unit/` 和 `tests/api/` 兩邊之上）加了一個
+  `autouse=True` 的全域 fixture，直接把
+  `app.services.gemini_client.GEMINI_API_KEY` patch 成 `None`，對每個
+  測試一律生效。值得記住：之後這個專案任何新的外部 API 整合，從第一天
+  就要準備好這兩層介面，不要等到真金鑰開始在每次測試偷偷花錢之後才補。
+- **使用者看到真實內容之後，輸出格式整個改掉。** 第一次真實掃描產生的
+  分析內容品質其實很好，但每個角色只有一段自由發揮的 `rationale`
+  長文字，讀起來像一整篇文章，不像報表。改成三個角色各自的 Pydantic
+  schema（`FundamentalCallSchema`/`TechnicalCallSchema`/
+  `PortfolioManagerCallSchema`），每個都是 `call`/`confidence` 加上
+  3-4 個固定、有標籤的一句話欄位（例如基本面研究員的
+  `revenue_trend`/`profitability`/`cash_flow_and_balance`/`key_risk`）。
+  `AgentAnalysis.rationale: Text` 改成 `details: JSON`
+  （migration `40ca7918d59f`）——改版前用舊格式產生的 18 筆資料直接
+  丟棄重新產生,而不是寫轉換腳本,因為那些都是同一天的 AI 產出、重新生成
+  成本很低（約 $0.05 美元），不值得為了保留它們寫一次性的資料轉換。
+- **KPI 直接沿用 Phase 10 的資料，沒有另外做一次評分**
+  （`app/services/agent_performance_service.py`）：每個角色的 `call`
+  拿去跟決定性引擎自己的 call 已經在比對的同一個
+  `RecommendationOutcome.actual_direction` 比對——`UNAVAILABLE` 的判斷
+  排除在分母之外,跟 Phase 10 排除 `WATCH`（不具方向性資訊）用的是同一個
+  原則。
+- **Recommendations 頁**的展開列新增了每個角色的結構化卡片（判斷徽章、
+  信心度、標籤欄位、`key_risk` 用紅色標示）；**Review 頁**新增「Agent
+  Performance」區塊，每個角色一張命中率卡片，跟上面決定性引擎的卡片
+  一樣，樣本不足就老實顯示「insufficient sample」。
+- **新增 24 個後端測試**（512 → 536）,前端既有測試改寫以符合新的卡片
+  格式（總數維持 113 個，是改寫既有案例,不是新增檔案）。兩個新的
+  Alembic migration（`a3ea98c9cdec` 新增 `agent_analyses`；
+  `40ca7918d59f` 把 `rationale` 改成 `details`）都在乾淨的 DB 上驗證過。
+- **刻意不讓 LLM 碰**：風控/合規維持既有的 Phase A 規則引擎不變——讓 LLM
+  把關財務決定，會重新引入這整個專案從第一個階段就刻意設計避開的幻覺
+  風險。
+
+---
+
 ## 尚待規劃的事項
 
 - **持續學習迴圈**（投資日誌/回饋報告/複盤——一個檢視過去推薦跟實際結果

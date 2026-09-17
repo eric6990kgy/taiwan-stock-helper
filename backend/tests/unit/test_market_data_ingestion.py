@@ -734,3 +734,56 @@ def test_update_all_retroactively_scores_a_past_recommendation_once_due(db_sessi
     assert len(outcomes) == 1
     assert outcomes[0].actual_direction == "BULLISH"
     assert outcomes[0].hit is True
+
+
+# ---- Gemini multi-agent research team (Phase 12) ---------------------------
+
+
+class FakeAgentResearchService:
+    """Stands in for the real AgentResearchService -- controls exactly
+    what analyze() returns per call without touching Gemini at all."""
+
+    def __init__(self, errors: list[str] | None = None):
+        self._errors = errors or []
+        self.analyzed_tickers: list[str] = []
+
+    def analyze(self, outcome):
+        self.analyzed_tickers.append(outcome.ticker)
+        return [], list(self._errors)
+
+
+def test_agent_analysis_is_a_no_op_when_nothing_changed(db_session):
+    """No status change -> no ScanOutcome -> agent_research_service.analyze()
+    is never even called, same scope as the LINE-alert loop."""
+    asset = make_asset(db_session)
+    add_to_watchlist(db_session, asset)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close="100") for i in range(65)]
+
+    service = MarketDataIngestionService(db_session, provider)
+    fake_agents = FakeAgentResearchService()
+    service.agent_research_service = fake_agents
+    service.update_all(tickers=["3653"])
+
+    assert fake_agents.analyzed_tickers == []
+
+
+def test_agent_analysis_error_surfaces_as_a_validation_warning_not_a_crash(db_session):
+    """A Gemini failure for a role must never block or fail the ingestion
+    batch -- same best-effort convention as a LINE alert failure."""
+    asset = make_asset(db_session)
+    add_to_watchlist(db_session, asset)
+    provider = FakeProvider()
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close="100") for i in range(65)]
+    MarketDataIngestionService(db_session, provider).update_all(tickers=["3653"])  # NEUTRAL baseline
+
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
+    service = MarketDataIngestionService(db_session, provider)
+    fake_agents = FakeAgentResearchService(errors=["TECHNICAL_ANALYST: Gemini call failed: boom"])
+    service.agent_research_service = fake_agents
+    result = service.update_all(tickers=["3653"])
+
+    assert result.status == "completed"
+    assert "3653" in result.succeeded
+    assert fake_agents.analyzed_tickers == ["3653"]
+    assert any("Agent analysis" in w.reason for w in result.validation_warnings)

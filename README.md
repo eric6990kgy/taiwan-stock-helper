@@ -17,17 +17,20 @@ what was built, what was decided and why, bugs found during review, and
 informal research (backtesting, strategy tuning) that never became a
 shipped feature.
 
-## Status: Phase 8 complete — Risk-Gated Recommendation Engine
+## Status: Phase 12 complete — Gemini Multi-Agent Research Team
 
 Full stack usable end-to-end from a browser. Beyond composite scoring,
-per-signal reads, and LINE alerts (Phase 7), the app now runs a daily
+per-signal reads, and LINE alerts (Phase 7), the app runs a daily
 change-only scan across a real 20-ticker watchlist, classifies each status
 change into conditional-language recommendations (never BUY/SELL), and
 checks every "consider increasing" recommendation against Phase A's risk/
-drawdown gate *before* showing it — never as an afterthought. A versioned,
-auditable strategy backs every recommendation, with small parameter tweaks
-auto-applying and bigger changes queued for your explicit confirmation —
-see "What's implemented (Phase 8)" below.
+drawdown gate *before* showing it — never as an afterthought (Phase 8). As
+of Phase 12, each recommendation also gets a structured research opinion
+from three Gemini agents (Fundamental Analyst, Technical Analyst,
+Portfolio Manager) riding alongside — never replacing — that same
+deterministic decision, with a KPI page tracking whether each agent's own
+calls actually turn out to be right. See "What's implemented (Phase 12)"
+below.
 
 ## Market Data
 
@@ -480,6 +483,63 @@ candidate pool here (`scripts/seed_watchlist_20.py`).
   engine; **none of it is a shipped feature**, and no `StrategyVersion`
   has been changed based on it.
 
+## What's implemented (Phase 12 — Gemini Multi-Agent Research Team)
+
+A narrative research layer riding alongside Phase 8's deterministic
+engine — never replacing it. Three Gemini-backed roles produce their own
+research opinion on each `Recommendation` the daily scan creates:
+
+- **Fundamental Analyst, Technical Analyst, Portfolio Manager**
+  (`app/services/agent_research_service.py`): each role has its own
+  structured-output Pydantic schema (`FundamentalCallSchema`/
+  `TechnicalCallSchema`/`PortfolioManagerCallSchema`) — a `call`
+  (BULLISH/BEARISH/NEUTRAL/UNAVAILABLE, reusing Signal's own vocabulary),
+  a `confidence` (0-100), and 3-4 short, labeled one-sentence fields
+  specific to that role (e.g. `revenue_trend`/`profitability` for the
+  Fundamental Analyst) — not a free-text paragraph, after the first real
+  run's output read like a wall of text. Fundamental/Technical reuse
+  `ResearchService`'s existing data-access methods (no new queries); the
+  Portfolio Manager additionally sees the other two roles' own output
+  plus the deterministic `Recommendation`'s already-decided action/
+  risk-gate result — fixed context it can discuss or disagree with but
+  never change.
+- **`GeminiClient`** (`app/services/gemini_client.py`): same
+  disabled-when-unconfigured shape as `LineNotifier` — a no-op until
+  `GEMINI_API_KEY` is set. Retries once on `429`/`503` (5s, then 15s
+  backoff) — the Gemini free tier caps `gemini-3.8-flash` at 5
+  requests/minute, which one scan with several changed tickers × 3 roles
+  blows through in a single burst.
+- **KPI, reusing Phase 10's data, not a new scoring pass**
+  (`app/services/agent_performance_service.py`,
+  `GET /api/agent-performance/summary`): each role's `call` is graded
+  against the same `RecommendationOutcome.actual_direction` the
+  deterministic engine's own call is already graded against.
+- **Deliberately not an LLM**: risk/compliance stays 100% the existing
+  Phase A rule engine — an LLM gating a financial decision would
+  reintroduce exactly the hallucination risk every phase up to this one
+  has structured itself to avoid.
+- **Recommendations page**: each role's analysis renders as a labeled
+  card (call badge, confidence, its fields, `key_risk` in red) in the
+  existing expandable row. **Review page**: a new "Agent Performance"
+  section, one hit-rate card per role, same "insufficient sample"
+  honesty as the deterministic cards above it.
+- **A real test-isolation bug found and fixed**: once a real
+  `GEMINI_API_KEY` sits in the local `.env`, any test that didn't
+  explicitly fake the Gemini client would otherwise make real, billed API
+  calls during `pytest` — fixed with a `get_gemini_client()`
+  dependency-injection seam plus a blanket `autouse` fixture in
+  `tests/conftest.py` that disables it for every test regardless of the
+  local `.env`.
+- **24 new backend tests** (bringing the total to 536); frontend tests
+  updated for the new card format (113 total). Two new Alembic migrations
+  (`a3ea98c9cdec` adds `agent_analyses`; `40ca7918d59f` reshapes
+  `rationale` into `details`) verified from a clean DB.
+- **Not built this phase**: no macro/news-aware role (would need live
+  tool-calling — a real departure from this repo's "deterministic,
+  reproducible, no live web dependency" principle); no memory of an
+  agent's own past calls on the same ticker; no per-agent confidence
+  weighting from its own KPI (the data exists, nothing acts on it yet).
+
 ## Not built yet
 
 Market-data ingestion can run manually (Settings → "Update Market Data")
@@ -497,10 +557,10 @@ Nano Investment has no official API/export/Open Banking path (confirmed in
 the Phase 5 Discovery Report) — its holdings are tracked via the existing
 `MANUAL_MARKET_VALUE` pattern, same as the Global ETF fund.
 
-As of Phase 8: no autonomous agent iterating strategy versions (個股訊號引擎規格書's
+As of Phase 12: no autonomous agent iterating strategy versions (個股訊號引擎規格書's
 own Phase C — proposing a change is a human/API action this phase, not a
 background job), no backtesting beyond the walk-forward hit-rate check
-above (no full trading simulator), no AI research/narrative layer, no MOPS
+above (no full trading simulator), no MOPS
 material-announcement data (FinMind doesn't have this dataset — needs a
 second provider against TWSE/TPEx's own OpenAPI, per the Phase 5 Discovery
 Report's documented fallback), no real-time data, no securities

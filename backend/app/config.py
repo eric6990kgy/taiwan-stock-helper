@@ -32,6 +32,13 @@ RISK_DRAWDOWN_STOP_PCT = Decimal(os.getenv("RISK_DRAWDOWN_STOP_PCT", "0.25"))
 # disabled, same "optional, works without it" pattern as FINMIND_API_TOKEN.
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 
+# Gemini multi-agent research team (Phase 12, confirmed with the user
+# 2026-09-17 -- Gemini over Claude, per the user's own existing Antigravity
+# familiarity). None -> the whole feature is silently disabled, same
+# "optional, works without it" pattern as FINMIND_API_TOKEN/
+# LINE_CHANNEL_ACCESS_TOKEN. Get a key from https://aistudio.google.com/apikey.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 # Passive benchmark for the alpha/excess-return calculation (spec Goal:
 # individual-stock activity is only worth the extra risk if it beats what
 # the user already holds passively). Must exist as an Asset row with

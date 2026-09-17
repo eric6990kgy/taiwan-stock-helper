@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountType,
+  AgentRole,
   Allocation,
   Asset,
   Holding,
@@ -284,4 +285,10 @@ export const journalApi = {
   update: (id: number, body: Partial<{ entry_date: string; category: JournalCategory; asset_id: number; body: string }>) =>
     request<JournalEntry>(`/api/journal/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   delete: (id: number) => request<void>(`/api/journal/${id}`, { method: "DELETE" }),
+};
+
+// ---- Phase 12: Gemini multi-agent research team ---------------------------
+
+export const agentPerformanceApi = {
+  summary: (role?: AgentRole) => request<ReviewSummary>(`/api/agent-performance/summary${qs({ role })}`),
 };

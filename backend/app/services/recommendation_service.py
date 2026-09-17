@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session
 from app.analytics.signal_types import BEARISH, BULLISH, UNAVAILABLE
 from app.models.recommendation import Recommendation
 from app.providers.mock_provider import MockMarketDataProvider
+from app.repositories.agent_analysis_repository import AgentAnalysisRepository
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.recommendation_repository import RecommendationRepository
 from app.repositories.signal_snapshot_repository import SignalSnapshotRepository
 from app.repositories.watchlist_repository import WatchlistRepository
+from app.schemas.agent_analysis import AgentAnalysisRead
 from app.schemas.recommendation import RecommendationRead, TriggeredSignalRead
 from app.services.analytics_service import AnalyticsService
 from app.services.portfolio_service import PortfolioService
@@ -57,6 +59,7 @@ class RecommendationService:
         self.signal_service = SignalService(db)
         self.strategy_service = StrategyService(db)
         self.recommendations_repo = RecommendationRepository(db)
+        self.agent_analyses_repo = AgentAnalysisRepository(db)
         market_data = MockMarketDataProvider(db)
         self.analytics_service = AnalyticsService(PortfolioService(db, market_data))
 
@@ -80,6 +83,17 @@ class RecommendationService:
                     regime=row.regime,
                     strategy_version_id=row.strategy_version_id,
                     created_at=row.created_at,
+                    agent_analyses=[
+                        AgentAnalysisRead(
+                            role=a.role,
+                            call=a.call,
+                            confidence=a.confidence,
+                            details=a.details,
+                            model=a.model,
+                            created_at=a.created_at,
+                        )
+                        for a in self.agent_analyses_repo.list_by_recommendation(row.id)
+                    ],
                 )
             )
         return reads

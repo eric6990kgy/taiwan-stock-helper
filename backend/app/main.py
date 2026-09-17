@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.analytics.exceptions import InsufficientSharesError, MixedPositionError
 from app.api.routes import (
     accounts,
+    agent_performance,
     analytics,
     assets,
     import_export,
@@ -97,6 +98,7 @@ for router in (
     strategy.router,
     review.router,
     journal.router,
+    agent_performance.router,
 ):
     app.include_router(router)
 

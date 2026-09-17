@@ -24,6 +24,24 @@ function recommendation(overrides: Partial<Record<string, unknown>> = {}) {
     regime: "BULL",
     strategy_version_id: 1,
     created_at: "2026-09-16T08:00:00Z",
+    agent_analyses: [],
+    ...overrides,
+  };
+}
+
+function agentAnalysis(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    role: "FUNDAMENTAL_ANALYST",
+    call: "BULLISH",
+    confidence: 75,
+    details: {
+      revenue_trend: "營收年增加速",
+      profitability: "毛利率創新高",
+      cash_flow_and_balance: "自由現金流為正",
+      key_risk: "半導體週期轉換風險",
+    },
+    model: "gemini-3.8-flash",
+    created_at: "2026-09-16T08:00:00Z",
     ...overrides,
   };
 }
@@ -64,6 +82,22 @@ describe("Recommendations page", () => {
     fireEvent.click(row);
     expect(await screen.findByText("目前回撤處於 HARD_STOP")).toBeInTheDocument();
     expect(await screen.findByText("股價站上20日均線")).toBeInTheDocument();
+  });
+
+  it("expands a row to show each agent's research opinion", async () => {
+    server.use(
+      http.get(`${API_URL}/api/recommendations`, () =>
+        HttpResponse.json([recommendation({ agent_analyses: [agentAnalysis()] })]),
+      ),
+    );
+    renderWithProviders(<Recommendations />);
+    const row = await screen.findByText("2330");
+    expect(screen.queryByText("營收年增加速")).not.toBeInTheDocument();
+    fireEvent.click(row);
+    expect(await screen.findByText("營收年增加速")).toBeInTheDocument();
+    expect(screen.getByText("半導體週期轉換風險")).toBeInTheDocument();
+    expect(screen.getByText("主要風險")).toBeInTheDocument();
+    expect(screen.getByText("基本面研究員")).toBeInTheDocument();
   });
 
   it("shows an error state when the request fails", async () => {

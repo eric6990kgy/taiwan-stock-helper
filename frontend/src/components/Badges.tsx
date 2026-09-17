@@ -1,4 +1,4 @@
-import type { JournalCategory, RecommendationAction, Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
+import type { AgentRole, JournalCategory, RecommendationAction, Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
 
 export function DemoDataBadge() {
   return (
@@ -150,6 +150,30 @@ export function HitMissBadge({ hit }: { hit: boolean }) {
     </span>
   );
 }
+
+export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
+  FUNDAMENTAL_ANALYST: "基本面研究員",
+  TECHNICAL_ANALYST: "技術面研究員",
+  PORTFOLIO_MANAGER: "投資組合經理人",
+};
+
+/** Labels for AgentAnalysis.details' keys -- the field set differs per
+ * role (see AgentResearchService's per-role Pydantic schemas), so this
+ * is one flat lookup covering every role's fields rather than three
+ * separate maps. An unrecognized key (a future field this map hasn't
+ * been updated for yet) falls back to showing the raw key. */
+export const AGENT_DETAIL_FIELD_LABELS: Record<string, string> = {
+  revenue_trend: "營收動能",
+  profitability: "獲利能力",
+  cash_flow_and_balance: "現金流",
+  trend: "均線結構",
+  momentum: "動能指標",
+  institutional_flow: "籌碼動向",
+  agreement_with_fundamental: "同意基本面",
+  agreement_with_technical: "同意技術面",
+  stance_vs_system: "與系統判斷",
+  key_risk: "主要風險",
+};
 
 /** Must never look like an ordinary recommendation at a glance (spec
  * requirement) -- a distinct, loud treatment, not just another badge lost

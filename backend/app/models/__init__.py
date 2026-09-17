@@ -19,6 +19,7 @@ from app.models.recommendation import Recommendation
 from app.models.pending_strategy_change import PendingStrategyChange
 from app.models.recommendation_outcome import RecommendationOutcome
 from app.models.journal_entry import JournalEntry
+from app.models.agent_analysis import AgentAnalysis
 
 __all__ = [
     "Base",
@@ -42,4 +43,5 @@ __all__ = [
     "PendingStrategyChange",
     "RecommendationOutcome",
     "JournalEntry",
+    "AgentAnalysis",
 ]

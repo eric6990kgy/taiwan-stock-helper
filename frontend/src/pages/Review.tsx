@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { ActionBadge, HitMissBadge, RiskBlockedBadge, SignalStatusBadge } from "../components/Badges";
+import { ActionBadge, AGENT_ROLE_LABELS, HitMissBadge, RiskBlockedBadge, SignalStatusBadge } from "../components/Badges";
+import { useAgentPerformance } from "../features/agentPerformance/hooks";
 import { QueryState } from "../components/QueryState";
 import { SummaryCard } from "../components/SummaryCard";
 import { useReviewOutcomes, useReviewSummary } from "../features/review/hooks";
 import { formatMoney } from "../utils/decimal";
-import type { RecommendationOutcome, ReviewSummary as ReviewSummaryType } from "../types/api";
+import type { AgentRole, RecommendationOutcome, ReviewSummary as ReviewSummaryType } from "../types/api";
+
+const AGENT_ROLES: AgentRole[] = ["FUNDAMENTAL_ANALYST", "TECHNICAL_ANALYST", "PORTFOLIO_MANAGER"];
 
 /** Ground-truth hit-rate for past recommendations (複盤, Phase 10) -- did
  * price actually move the direction each CONSIDER_INCREASE/
@@ -18,6 +21,14 @@ export function Review() {
   const increaseQuery = useReviewSummary("CONSIDER_INCREASE");
   const decreaseQuery = useReviewSummary("CONSIDER_DECREASE");
   const outcomesQuery = useReviewOutcomes();
+  const fundamentalQuery = useAgentPerformance("FUNDAMENTAL_ANALYST");
+  const technicalQuery = useAgentPerformance("TECHNICAL_ANALYST");
+  const pmQuery = useAgentPerformance("PORTFOLIO_MANAGER");
+  const agentQueries: Record<AgentRole, ReturnType<typeof useAgentPerformance>> = {
+    FUNDAMENTAL_ANALYST: fundamentalQuery,
+    TECHNICAL_ANALYST: technicalQuery,
+    PORTFOLIO_MANAGER: pmQuery,
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,6 +44,18 @@ export function Review() {
         <SummaryCardFromReview title="Consider Increase" query={increaseQuery} />
         <SummaryCardFromReview title="Consider Decrease" query={decreaseQuery} />
       </div>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">Agent Performance</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Each Gemini agent's own call, scored the same way as the deterministic engine above -- a research opinion, not a decision.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {AGENT_ROLES.map((role) => (
+            <SummaryCardFromReview key={role} title={AGENT_ROLE_LABELS[role]} query={agentQueries[role]} />
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-slate-900">Scored Outcomes</h2>

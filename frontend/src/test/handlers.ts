@@ -164,6 +164,7 @@ export const handlers = [
     }),
   ),
   http.get(`${API_URL}/api/review/summary`, () => HttpResponse.json({ hits: 0, n: 0, hit_rate: null })),
+  http.get(`${API_URL}/api/agent-performance/summary`, () => HttpResponse.json({ hits: 0, n: 0, hit_rate: null })),
   http.get(`${API_URL}/api/review/outcomes`, () => HttpResponse.json([])),
   http.get(`${API_URL}/api/journal`, () => HttpResponse.json([])),
   http.post(`${API_URL}/api/journal`, async ({ request }) => {

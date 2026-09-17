@@ -5,11 +5,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_gemini_client
 from app.database.base import Base
 from app import models  # noqa: F401
 from app.database.seed import seed
 from app.main import app
+from app.services.gemini_client import GeminiClient
 
 
 @event.listens_for(Engine, "connect")
@@ -41,6 +42,13 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    # Force Gemini off for every API test by default, regardless of
+    # whatever GEMINI_API_KEY is actually set to in the developer's local
+    # .env -- tests must never make real, billed external calls (same
+    # "no live external calls" rule already enforced for FinMind via
+    # StubProvider). A test that wants to exercise the enabled path
+    # overrides this again with its own fake, same pattern as stub_provider.
+    app.dependency_overrides[get_gemini_client] = lambda: GeminiClient(api_key="")
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

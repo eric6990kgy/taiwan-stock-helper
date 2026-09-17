@@ -68,6 +68,21 @@ describe("Review page", () => {
     expect(await screen.findByText(/630\.0000/)).toBeInTheDocument();
   });
 
+  it("shows a per-role agent performance card", async () => {
+    server.use(
+      http.get(`${API_URL}/api/agent-performance/summary`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("role") === "FUNDAMENTAL_ANALYST") {
+          return HttpResponse.json({ hits: 2, n: 4, hit_rate: "0.5" });
+        }
+        return HttpResponse.json({ hits: 0, n: 0, hit_rate: null });
+      }),
+    );
+    renderWithProviders(<Review />);
+    expect(await screen.findByText("基本面研究員")).toBeInTheDocument();
+    expect(await screen.findByText(/50\.0% \(2\/4\)/)).toBeInTheDocument();
+  });
+
   it("shows an error state when the outcomes request fails", async () => {
     server.use(http.get(`${API_URL}/api/review/outcomes`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
     renderWithProviders(<Review />);

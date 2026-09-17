@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
+from app.schemas.agent_analysis import AgentAnalysisRead
+
 
 class TriggeredSignalRead(BaseModel):
     id: str
@@ -31,6 +33,7 @@ class RecommendationRead(BaseModel):
     regime: str | None = None
     strategy_version_id: int
     created_at: datetime
+    agent_analyses: list[AgentAnalysisRead] = []
 
 
 class DailyScanResultRead(BaseModel):

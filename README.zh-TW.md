@@ -14,14 +14,16 @@
 沒有變成正式功能的非正式研究（回測、策略調整）——請見
 [`DEVLOG.md`](DEVLOG.zh-TW.md)（中文版）。
 
-## 現況：Phase 8 已完成 —— 風險閘門推薦引擎
+## 現況：Phase 12 已完成 —— Gemini 多代理人研究團隊
 
 整套系統已可從瀏覽器端到端使用。除了 Phase 7 的綜合評分、逐項訊號讀取、LINE
-通知之外，系統現在會對一份真實的 20 檔觀察名單跑「每日只顯示變動」的掃描，把每次
+通知之外，系統會對一份真實的 20 檔觀察名單跑「每日只顯示變動」的掃描，把每次
 狀態變化分類成條件式語氣的推薦（**絕不是**「買/賣」），並且在顯示任何一則「考慮
-加碼」的推薦*之前*，一定先過 Phase A 的風險/回撤閘門檢查——不是事後才補檢查。
-每一則推薦背後都有一個版本化、可稽核的策略：小幅參數調整會自動套用，較大的變動
-則會排進佇列等待你明確確認——細節見下方「已實作（Phase 8）」。
+加碼」的推薦*之前*，一定先過 Phase A 的風險/回撤閘門檢查——不是事後才補檢查
+（Phase 8）。到了 Phase 12，每一則推薦還會額外附上三個 Gemini agent（基本面
+研究員、技術面研究員、投資組合經理人）各自的結構化研究意見——附掛在同一個決定性
+判斷旁邊，絕不取代它——並有一個 KPI 頁面追蹤每個 agent 自己講的話事後到底準不準。
+細節見下方「已實作（Phase 12）」。
 
 ## 市場資料
 
@@ -411,6 +413,53 @@ token 成本）。它原本的 20 檔候選觀察名單已經從它自己的資�
   對著系統真實訊號引擎做的草稿式探索；**沒有任何一項是正式上線的功能**，
   也沒有任何 `StrategyVersion` 因此被更改過。
 
+## 已實作（Phase 12 —— Gemini 多代理人研究團隊）
+
+附掛在 Phase 8 決定性引擎旁邊的敘事研究層——絕不取代它。每天掃描產生的
+每一筆 `Recommendation`，都會由三個 Gemini agent 各自產生一份研究意見：
+
+- **基本面研究員、技術面研究員、投資組合經理人**
+  （`app/services/agent_research_service.py`）：每個角色有自己的結構化
+  輸出 Pydantic schema（`FundamentalCallSchema`/`TechnicalCallSchema`/
+  `PortfolioManagerCallSchema`）——一個 `call`（BULLISH/BEARISH/
+  NEUTRAL/UNAVAILABLE，沿用 Signal 自己的詞彙）、一個 `confidence`
+  （0-100），以及該角色專屬的 3-4 個固定、有標籤的一句話欄位（例如基本面
+  研究員的 `revenue_trend`/`profitability`）——不是一段自由發揮的長文字，
+  這是第一次真實掃描的輸出讀起來像一整篇文章之後改的。基本面/技術面
+  兩個角色直接沿用 `ResearchService` 既有的資料存取方法（不新增查詢）；
+  投資組合經理人額外看得到另外兩個角色自己的輸出，加上決定性
+  `Recommendation` 已經做出的 action/風控結果——當成它可以評論或不同意、
+  但永遠不能改變的固定背景資訊。
+- **`GeminiClient`**（`app/services/gemini_client.py`）：跟
+  `LineNotifier` 一樣「沒設定就停用」的模式——沒設定 `GEMINI_API_KEY`
+  就是 no-op。遇到 `429`/`503` 會重試一次（先等 5 秒、再等 15 秒）——
+  Gemini 免費層把 `gemini-3.8-flash` 限制在每分鐘 5 次請求，一次掃描只要
+  有幾檔股票變化 × 3 個角色，一次爆發性送出就會超過這個上限。
+- **KPI 直接沿用 Phase 10 的資料，沒有另外做一次評分**
+  （`app/services/agent_performance_service.py`、
+  `GET /api/agent-performance/summary`）：每個角色的 `call` 拿去跟決定性
+  引擎自己的 call 已經在比對的同一個 `RecommendationOutcome.actual_direction`
+  比對。
+- **刻意不讓 LLM 碰**：風控/合規維持既有的 Phase A 規則引擎——讓 LLM 把關
+  財務決定，會重新引入這整個專案從第一個階段就刻意設計避開的幻覺風險。
+- **Recommendations 頁**：每個角色的分析在既有的展開列裡顯示成一張標籤
+  卡片（判斷徽章、信心度、欄位內容、`key_risk` 用紅色標示）。**Review
+  頁**：新增「Agent Performance」區塊，每個角色一張命中率卡片，跟上面
+  決定性引擎的卡片一樣，樣本不足就老實顯示「insufficient sample」。
+- **找到並修好一個真的會影響測試隔離性的 bug**：一旦本機 `.env` 裡有真的
+  `GEMINI_API_KEY`，任何沒有明確替換掉 Gemini client 的測試，都會在跑
+  `pytest` 時真的打出去、真的被計費——修法是加一個 `get_gemini_client()`
+  依賴注入介面，再加一個 `tests/conftest.py` 裡的全域 `autouse` fixture，
+  不管本機 `.env` 內容是什麼，一律強制停用。
+- **新增 24 個後端測試**（總數拉到 536）；前端測試改寫以符合新的卡片
+  格式（總數維持 113 個）。兩個新的 Alembic migration（`a3ea98c9cdec`
+  新增 `agent_analyses`；`40ca7918d59f` 把 `rationale` 改成 `details`）
+  都在乾淨的 DB 上驗證過。
+- **這個階段沒做的事**：沒有總經/新聞感知角色（需要即時工具呼叫——這會
+  真的違背這個專案「決定性、可重現、不依賴即時網路」的原則）；agent
+  沒有記憶自己對同一檔股票過去講過什麼；沒有依照 agent 自己的 KPI 動態
+  調整信任度（KPI 資料已經有了，還沒有任何東西拿它來做事）。
+
 ## 還沒做的事
 
 市場資料擷取可以手動執行（Settings →「Update Market Data」）或透過作業
@@ -425,10 +474,10 @@ token 成本）。它原本的 20 檔候選觀察名單已經從它自己的資�
 Report 已確認）——它的持倉是透過既有的 `MANUAL_MARKET_VALUE` 模式追蹤，
 跟全球 ETF 基金一樣。
 
-到 Phase 8 為止：沒有自主 agent 迭代策略版本（個股訊號引擎規格書自己的
+到 Phase 12 為止：沒有自主 agent 迭代策略版本（個股訊號引擎規格書自己的
 Phase C——這個階段提出變更是人/API 操作，不是背景工作），除了上面的
 walk-forward 命中率檢查之外沒有其他回測功能（沒有完整的交易模擬器），
-沒有 AI 研究/敘事層，沒有公開資訊觀測站的重大訊息資料（FinMind 沒有這個
+沒有公開資訊觀測站的重大訊息資料（FinMind 沒有這個
 資料集——需要第二個對接 TWSE/TPEx 自己 OpenAPI 的資料來源，依 Phase 5
 Discovery Report 已記錄的備援方案），沒有即時資料，沒有借券/產業鏈/
 ETF 專屬資料集。完整的優先順序排名見專案歷史裡的 Phase 6 報告，訊號引擎

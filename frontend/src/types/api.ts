@@ -387,6 +387,29 @@ export interface Recommendation {
   regime: "BULL" | "BEAR" | "NEUTRAL" | null;
   strategy_version_id: number;
   created_at: string;
+  agent_analyses: AgentAnalysis[];
+}
+
+// ---- Phase 12: Gemini multi-agent research team ---------------------------
+
+export type AgentRole = "FUNDAMENTAL_ANALYST" | "TECHNICAL_ANALYST" | "PORTFOLIO_MANAGER";
+
+/** One Gemini agent's narrative research opinion (Phase 12) -- rides
+ * alongside the deterministic Recommendation above, never replaces it.
+ * `call` reuses SignalStatus's own vocabulary; UNAVAILABLE means the
+ * agent's own inputs were too sparse to form a real view, never a
+ * fabricated opinion. Always conditional research language, never a
+ * BUY/SELL instruction, same principle as Recommendation itself.
+ * `details` is a handful of short, labeled one-sentence fields specific
+ * to that role (e.g. revenue_trend/profitability for FUNDAMENTAL_ANALYST)
+ * -- not a free-text paragraph -- see AGENT_DETAIL_FIELD_LABELS. */
+export interface AgentAnalysis {
+  role: AgentRole;
+  call: SignalStatus;
+  confidence: number;
+  details: Record<string, string>;
+  model: string;
+  created_at: string;
 }
 
 export interface SignalRules {

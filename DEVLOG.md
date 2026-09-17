@@ -337,6 +337,102 @@ repo:
 
 ---
 
+## 2026-09-17 — Phase 12: Gemini multi-agent research team
+
+**Commit:** pending (not committed as of this entry)
+
+You asked for a "team" of agents modeled on how a real brokerage research
+department is organized — a fundamental analyst, a technical analyst, and
+a decision-synthesis role — with a KPI system so it's possible to tell
+which agent's calls are actually worth listening to. You picked Gemini
+over Claude (citing your own existing familiarity with Google
+Antigravity's multi-agent persona system), so this phase is Gemini-only.
+
+The one rule carried forward unchanged from every prior phase: **the
+deterministic Phase 8 engine still owns the actual decision.** Nothing
+here lets an LLM change `action`/`new_status`/`risk_blocked` — the three
+Gemini agents produce a narrative research opinion that rides alongside
+the existing `Recommendation`, never instead of it.
+
+- **Verified the SDK before writing any code, same discipline as the
+  `claude-api` skill already enforces for Claude.** The plan going in
+  assumed `client.interactions.create()` — turns out that's a different,
+  session/agent-oriented surface (persisted Agents, webhooks, triggers)
+  that doesn't fit a stateless structured-output call. Installed
+  `google-genai` locally and inspected the real client before writing
+  `app/services/gemini_client.py` — the correct surface for this is
+  `client.models.generate_content()` with a Pydantic `response_schema`.
+  Caught before any production code was written, not after.
+- **`AgentResearchService`** (`app/services/agent_research_service.py`):
+  Fundamental Analyst and Technical Analyst run off `ResearchService`'s
+  existing data-access methods (no new queries); the Portfolio Manager
+  additionally sees the other two roles' output plus the deterministic
+  decision as fixed context — it can discuss or disagree with the
+  system's call, but its own output can never become the system's call.
+  Each role fails independently (`_safe_role`) so one bad response never
+  loses the other two.
+- **Rate limiting, discovered live, not anticipated.** The first real run
+  (right after the user enabled billing) still failed everything with
+  `429`/`503` — Gemini's free tier caps `gemini-3.8-flash` at 5
+  requests/minute, and a single scan with several changed tickers × 3
+  roles blows through that in one burst. Turned out to be a billing
+  propagation delay, not a real limit once billing had settled — but
+  added a real retry (5s, then 15s backoff on `429`/`503` only, not on
+  `400`/auth errors) to `GeminiClient` regardless, since transient
+  rate-limiting can recur on the paid tier too.
+- **A real, load-bearing test-isolation bug.** Once a real
+  `GEMINI_API_KEY` sits in the local `.env` — now permanent on this dev
+  machine — any test that called `MarketDataIngestionService.update_all()`
+  without explicitly faking `agent_research_service` would make real,
+  billed Gemini calls during `pytest`, both in API tests and in existing
+  unit tests that never anticipated a real key being present. FinMind
+  already had exactly this problem solved via a dependency-injection seam
+  (`get_finmind_provider`, overridden per-test with `StubProvider`) — the
+  Gemini client had no equivalent seam. Fixed two ways: a
+  `get_gemini_client()` seam in `app/api/deps.py` threaded through
+  `MarketDataIngestionService.__init__`, and — because unit tests
+  construct that service directly, bypassing the API layer's DI entirely
+  — a blanket `autouse=True` fixture in `tests/conftest.py` (the file
+  above both `tests/unit/` and `tests/api/`) that patches
+  `app.services.gemini_client.GEMINI_API_KEY` to `None` for every test,
+  full stop. Worth remembering: any future external-API integration in
+  this repo needs the same two-layer seam from day one, not bolted on
+  after a real key starts costing money during test runs.
+- **The output format changed after the user saw real content.** The
+  first live run produced genuinely good analysis, but one free-text
+  `rationale` paragraph per role read like a wall of text, not a report.
+  Redesigned into three role-specific Pydantic schemas
+  (`FundamentalCallSchema`/`TechnicalCallSchema`/`PortfolioManagerCallSchema`),
+  each with `call`/`confidence` plus 3-4 short, labeled one-sentence
+  fields (e.g. `revenue_trend`/`profitability`/`cash_flow_and_balance`/
+  `key_risk` for the Fundamental Analyst). `AgentAnalysis.rationale: Text`
+  became `details: JSON` (migration `40ca7918d59f`) — the 18 rows already
+  generated under the old shape were discarded and regenerated under the
+  new schema rather than migrated, since they were same-day AI output,
+  cheap to redo (~$0.05), and not worth a data-migration script.
+- **KPI reuses Phase 10, no new scoring pass**
+  (`app/services/agent_performance_service.py`): each role's `call` is
+  graded against the exact same `RecommendationOutcome.actual_direction`
+  the deterministic engine's own call is already graded against —
+  `UNAVAILABLE` calls excluded from the denominator, same "not
+  information-bearing" exclusion Phase 10 already applies to `WATCH`.
+- **Recommendations page** gained a per-role structured card in the
+  expandable row (call badge, confidence, labeled fields, `key_risk` in
+  red); **Review page** gained an "Agent Performance" section, one
+  hit-rate card per role, same "insufficient sample" honesty as the cards
+  above it.
+- **24 new backend tests** (512 → 536) plus existing frontend tests
+  updated for the new card format (113 total, unchanged count — existing
+  cases rewritten, not new files). Two Alembic migrations
+  (`a3ea98c9cdec` adds `agent_analyses`; `40ca7918d59f` reshapes
+  `rationale` into `details`) verified from a clean DB.
+- **Deliberately not an LLM**: risk/compliance stays the existing Phase A
+  rule engine, unchanged — an LLM gating a financial decision would
+  reintroduce exactly the hallucination risk every phase up to this one
+  has structured itself to avoid.
+
+---
+
 ## Open threads (not yet scoped)
 
 - **The continuous-learning loop** (投資日誌/回饋報告/複盤 — a feedback

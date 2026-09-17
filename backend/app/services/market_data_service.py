@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
 from app.providers.market_data_provider import AssetNotFoundError, MarketDataProvider, ProviderError, RateLimitError
+from app.providers.mock_provider import MockMarketDataProvider
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.dividend_repository import DividendRepository
 from app.repositories.fundamentals_repository import FundamentalsRepository
@@ -25,11 +26,15 @@ from app.repositories.margin_trading_repository import MarginTradingRepository
 from app.repositories.monthly_revenue_repository import MonthlyRevenueRepository
 from app.repositories.price_repository import PriceRepository
 from app.schemas.market_data import MarketDataError, MarketDataUpdateResult
+from app.services.agent_research_service import AgentResearchService
+from app.services.gemini_client import GeminiClient
 from app.services.line_notifier import LineNotifier, LineNotifyError, format_recommendation_alert
 from app.services.market_data_validation import PriceValidationError, validate_price_point
 from app.services.recommendation_outcome_service import RecommendationOutcomeService
 from app.services.recommendation_service import RecommendationService
+from app.services.research_service import ResearchService
 from app.services.scoring_service import TAIEX_TICKER, ScoringService
+from app.services.thesis_service import ThesisService
 
 SOURCE = "FINMIND"
 INCREMENTAL_LOOKBACK_DAYS = 5  # small overlap window on repeat updates, to catch late corrections
@@ -47,7 +52,7 @@ ELIGIBLE_ASSET_TYPES = ("STOCK", "ETF")
 
 
 class MarketDataIngestionService:
-    def __init__(self, db: Session, provider: MarketDataProvider):
+    def __init__(self, db: Session, provider: MarketDataProvider, gemini_client: GeminiClient | None = None):
         self.db = db
         self.provider = provider
         self.assets = AssetRepository(db)
@@ -61,6 +66,24 @@ class MarketDataIngestionService:
         self.recommendation_service = RecommendationService(db)
         self.recommendation_outcome_service = RecommendationOutcomeService(db)
         self.line_notifier = LineNotifier()
+        # Phase 12: Gemini multi-agent research team. `gemini_client` is a
+        # constructor param (not always built here directly) for the same
+        # reason `provider` is -- API tests need a real seam to force it
+        # off via dependency override (get_gemini_client in deps.py),
+        # otherwise a real GEMINI_API_KEY in the local .env would make
+        # pytest itself fire real, billed Gemini calls (discovered live
+        # 2026-09-17 -- exactly the "no live external calls in tests"
+        # rule this repo already enforces for FinMind via stub providers).
+        # Reads via the local MockMarketDataProvider (same as
+        # SignalService/ResearchService elsewhere) -- never calls FinMind,
+        # so this never raises RateLimitError. Inert (analyze() returns
+        # immediately) until GEMINI_API_KEY is configured, same "optional"
+        # convention as self.line_notifier above.
+        self.agent_research_service = AgentResearchService(
+            db,
+            gemini_client if gemini_client is not None else GeminiClient(),
+            ResearchService(db, MockMarketDataProvider(db), ThesisService(db)),
+        )
 
     def close(self) -> None:
         self.line_notifier.close()
@@ -212,6 +235,17 @@ class MarketDataIngestionService:
                 self.line_notifier.broadcast(message)
             except LineNotifyError as exc:
                 validation_warnings.append(MarketDataError(ticker=outcome.ticker, reason=f"LINE alert not sent: {exc}"))
+
+        # Phase 12: Gemini multi-agent research team, only for the same
+        # change-only outcomes above -- no-op (empty lists back) when
+        # GEMINI_API_KEY isn't configured. Each role's own failure is
+        # already isolated inside analyze(); any error message it returns
+        # is recorded as a best-effort warning, never raised, matching the
+        # LINE-alert failure handling immediately above.
+        for outcome in outcomes:
+            _, agent_errors = self.agent_research_service.analyze(outcome)
+            for message in agent_errors:
+                validation_warnings.append(MarketDataError(ticker=outcome.ticker, reason=f"Agent analysis: {message}"))
 
         # Phase 10: score every past Recommendation that's now old enough
         # to check against real price history. Reads only the local DB
