@@ -13,6 +13,11 @@ if DATABASE_URL.startswith("sqlite"):
         """SQLite ignores FK constraints unless explicitly turned on per-connection."""
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL lets a reader (the dev server) and a writer (the 19:00
+        # scheduled task, or an ad-hoc script) hit the DB at the same time
+        # without one blocking the other on the default rollback-journal's
+        # exclusive lock. Idempotent -- safe to set on every connection.
+        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 
 

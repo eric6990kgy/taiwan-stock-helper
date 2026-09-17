@@ -4,6 +4,7 @@ import { Money, Percent, Shares } from "../components/Money";
 import { QueryState } from "../components/QueryState";
 import { SummaryCard } from "../components/SummaryCard";
 import { useAllocation, useHoldings, usePerformance, usePortfolioSummary } from "../features/portfolio/hooks";
+import { useAssets } from "../features/transactions/hooks";
 import { useWatchlist } from "../features/watchlist/hooks";
 import { formatCurrency, formatPercent, signOf } from "../utils/decimal";
 
@@ -13,6 +14,10 @@ export function Dashboard() {
   const allocationQuery = useAllocation();
   const watchlistQuery = useWatchlist();
   const performanceQuery = usePerformance();
+  const assetsQuery = useAssets();
+
+  const assetsById = new Map((assetsQuery.data ?? []).map((a) => [a.id, a]));
+  const hasDemoHolding = (holdingsQuery.data ?? []).some((h) => assetsById.get(h.asset_id)?.is_demo_data);
 
   return (
     <div className="flex flex-col gap-6">
@@ -21,7 +26,7 @@ export function Dashboard() {
           <h1 className="text-xl font-semibold text-slate-900">Dashboard</h1>
           <p className="text-sm text-slate-500">Where your money is, and how it's doing today.</p>
         </div>
-        <DemoDataBadge />
+        {hasDemoHolding && <DemoDataBadge />}
       </div>
 
       <QueryState

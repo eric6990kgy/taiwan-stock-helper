@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { accountsApi, assetsApi, transactionsApi, type TransactionFilters } from "../../services/api";
+import { accountsApi, assetsApi, importExportApi, transactionsApi, type TransactionFilters } from "../../services/api";
 
 export function useAccounts() {
   return useQuery({ queryKey: ["accounts"], queryFn: accountsApi.list });
@@ -7,6 +7,57 @@ export function useAccounts() {
 
 export function useAssets() {
   return useQuery({ queryKey: ["assets"], queryFn: assetsApi.list });
+}
+
+export function useCreateAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: assetsApi.create,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+function useInvalidateAccounts() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ["accounts"] });
+}
+
+export function useCreateAccount() {
+  const invalidate = useInvalidateAccounts();
+  return useMutation({
+    mutationFn: accountsApi.create,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateAccount() {
+  const invalidate = useInvalidateAccounts();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof accountsApi.update>[1] }) =>
+      accountsApi.update(id, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteAccount() {
+  const invalidate = useInvalidateAccounts();
+  return useMutation({
+    mutationFn: accountsApi.delete,
+    onSuccess: invalidate,
+  });
+}
+
+export function useImportTransactions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: importExportApi.importTransactions,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
 }
 
 export function useTransactions(filters: TransactionFilters) {

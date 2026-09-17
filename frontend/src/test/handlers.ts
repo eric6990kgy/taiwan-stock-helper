@@ -105,6 +105,41 @@ export const handlers = [
   http.post(`${API_URL}/api/transactions`, () =>
     HttpResponse.json({ detail: "Cannot sell 999 units of asset 4: only 3.0000 available." }, { status: 400 }),
   ),
+  http.post(`${API_URL}/api/assets`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      {
+        id: 99,
+        ticker: body.ticker,
+        name: body.name,
+        asset_type: body.asset_type,
+        market: body.market ?? null,
+        currency: body.currency ?? "TWD",
+        sector: body.sector ?? null,
+        industry: body.industry ?? null,
+        valuation_method: body.valuation_method ?? "TRANSACTION_BASED",
+        is_demo_data: false,
+        needs_review: false,
+      },
+      { status: 201 },
+    );
+  }),
+  http.post(`${API_URL}/api/accounts`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      { id: 3, user_id: 1, name: body.name, account_type: body.account_type, currency: body.currency ?? "TWD", created_at: "2026-01-01T00:00:00" },
+      { status: 201 },
+    );
+  }),
+  http.put(`${API_URL}/api/accounts/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const existing = mockAccounts.find((a) => a.id === Number(params.id)) ?? mockAccounts[0];
+    return HttpResponse.json({ ...existing, ...body });
+  }),
+  http.delete(`${API_URL}/api/accounts/:id`, () => new HttpResponse(null, { status: 204 })),
+  http.post(`${API_URL}/api/import/transactions`, () =>
+    HttpResponse.json({ imported: 1, skipped: [], needs_review_tickers: [] }),
+  ),
   http.post(`${API_URL}/api/market-data/update`, () =>
     HttpResponse.json({
       status: "completed",

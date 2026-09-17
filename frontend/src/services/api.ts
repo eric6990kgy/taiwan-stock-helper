@@ -1,8 +1,11 @@
 import type {
   Account,
+  AccountType,
   Allocation,
   Asset,
+  AssetType,
   Holding,
+  ImportResult,
   InstitutionalFlow,
   MarginTrading,
   MarketDataUpdateResult,
@@ -21,6 +24,7 @@ import type {
   TechnicalIndicators,
   Thesis,
   Transaction,
+  ValuationMethod,
   WatchlistEntry,
 } from "../types/api";
 
@@ -34,16 +38,29 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
+/** FastAPI's own validation errors (422) return `detail` as an array of
+ * `{loc, msg, type}` objects, not a string -- passing that straight to
+ * `Error`'s constructor stringifies it as "[object Object]". Join each
+ * item's `msg` (falling back to JSON if the shape is ever unexpected)
+ * so the UI always shows readable text. */
+function formatDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) =>
+      item && typeof item === "object" && "msg" in item ? String((item as { msg: unknown }).msg) : JSON.stringify(item),
+    );
+    if (messages.length > 0) return messages.join("; ");
+  }
+  if (detail != null) return JSON.stringify(detail);
+  return fallback;
+}
+
+async function parseResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: string = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ?? detail;
+      detail = formatDetail(body.detail, res.statusText);
     } catch {
       // response wasn't JSON -- keep statusText
     }
@@ -51,6 +68,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  return parseResponse<T>(res);
+}
+
+/** Like `request`, but for a `FormData` body (multipart file upload) --
+ * omits the JSON Content-Type so the browser can set its own multipart
+ * boundary header instead. */
+async function postForm<T>(path: string, formData: FormData): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", body: formData });
+  return parseResponse<T>(res);
 }
 
 function qs(params: Record<string, string | number | boolean | undefined | null>): string {
@@ -63,8 +96,11 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 
 export const accountsApi = {
   list: () => request<Account[]>("/api/accounts"),
-  create: (body: { name: string; account_type: string; currency?: string }) =>
+  create: (body: { name: string; account_type: AccountType; currency?: string }) =>
     request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: number, body: Partial<{ name: string; account_type: AccountType }>) =>
+    request<Account>(`/api/accounts/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  delete: (id: number) => request<void>(`/api/accounts/${id}`, { method: "DELETE" }),
 };
 
 // ---- Assets -------------------------------------------------------------------
@@ -72,6 +108,16 @@ export const accountsApi = {
 export const assetsApi = {
   list: () => request<Asset[]>("/api/assets"),
   getByTicker: (ticker: string) => request<Asset>(`/api/assets/${encodeURIComponent(ticker)}`),
+  create: (body: {
+    ticker: string;
+    name: string;
+    asset_type: AssetType;
+    market?: string;
+    currency?: string;
+    sector?: string;
+    industry?: string;
+    valuation_method?: ValuationMethod;
+  }) => request<Asset>("/api/assets", { method: "POST", body: JSON.stringify(body) }),
 };
 
 // ---- Transactions ---------------------------------------------------------------
@@ -206,4 +252,23 @@ export const strategyApi = {
     request<StrategyVersion>(`/api/strategy/pending/${id}/confirm`, { method: "POST" }),
   rejectPending: (id: number) =>
     request<PendingStrategyChange>(`/api/strategy/pending/${id}/reject`, { method: "POST" }),
+};
+
+// ---- CSV Import/Export ------------------------------------------------------
+
+/** Export routes are plain GETs that return `Content-Disposition:
+ * attachment` -- a real `<a href download>` link triggers a browser
+ * download with no fetch/blob plumbing needed, so these are just the URLs. */
+export const exportUrls = {
+  transactions: `${API_URL}/api/export/transactions`,
+  holdings: `${API_URL}/api/export/holdings`,
+  portfolioSnapshot: `${API_URL}/api/export/portfolio-snapshot`,
+};
+
+export const importExportApi = {
+  importTransactions: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return postForm<ImportResult>("/api/import/transactions", formData);
+  },
 };

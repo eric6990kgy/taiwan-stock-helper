@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
 import { renderWithProviders } from "../test/renderWithProviders";
+import type { Asset, AssetType, ValuationMethod } from "../types/api";
 import { Transactions } from "./Transactions";
 
 const API_URL = "http://127.0.0.1:8010";
@@ -41,6 +42,88 @@ describe("Transactions page", () => {
     await waitFor(() => expect(screen.getByText(/only 3\.0000 available/i)).toBeInTheDocument());
     // The modal must stay open on failure -- the user's input isn't lost.
     expect(screen.getByRole("heading", { name: /add transaction/i })).toBeInTheDocument();
+  });
+
+  it("rejects a zero quantity client-side instead of hitting a confusing 422", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Transactions />);
+
+    await user.click(await screen.findByRole("button", { name: /add transaction/i }));
+    const accountSelect = await screen.findByRole("combobox", { name: /account/i });
+    await user.selectOptions(accountSelect, "1");
+    const assetSelect = screen.getByRole("combobox", { name: /asset/i });
+    await user.selectOptions(assetSelect, "1");
+
+    const [quantityInput, priceInput] = screen.getAllByRole("spinbutton");
+    await user.type(quantityInput, "0");
+    await user.type(priceInput, "100");
+    await user.click(screen.getByRole("button", { name: /save transaction/i }));
+
+    expect(await screen.findByText(/must be greater than zero/i)).toBeInTheDocument();
+  });
+
+  it("opens Add Asset from the ticker picker and selects the newly-created asset", async () => {
+    const user = userEvent.setup();
+    // The real backend's GET /api/assets would include a just-created asset
+    // on the next fetch (the mutation invalidates the ["assets"] query) --
+    // the static default handler doesn't, so make it stateful for this test.
+    let assets: Asset[] = [
+      {
+        id: 1,
+        ticker: "3653",
+        name: "健策",
+        asset_type: "STOCK",
+        market: "TWSE",
+        currency: "TWD",
+        sector: "Technology",
+        industry: "Semiconductor Packaging",
+        valuation_method: "TRANSACTION_BASED",
+        is_demo_data: true,
+        needs_review: false,
+      },
+    ];
+    server.use(
+      http.get(`${API_URL}/api/assets`, () => HttpResponse.json(assets)),
+      http.post(`${API_URL}/api/assets`, async ({ request }) => {
+        const body = (await request.json()) as {
+          ticker: string;
+          name: string;
+          asset_type: AssetType;
+          market?: string;
+          currency?: string;
+          sector?: string;
+          industry?: string;
+          valuation_method?: ValuationMethod;
+        };
+        const created: Asset = {
+          id: 99,
+          ticker: body.ticker,
+          name: body.name,
+          asset_type: body.asset_type,
+          market: body.market ?? null,
+          currency: body.currency ?? "TWD",
+          sector: body.sector ?? null,
+          industry: body.industry ?? null,
+          valuation_method: body.valuation_method ?? "TRANSACTION_BASED",
+          is_demo_data: false,
+          needs_review: false,
+        };
+        assets = [...assets, created];
+        return HttpResponse.json(created, { status: 201 });
+      }),
+    );
+    renderWithProviders(<Transactions />);
+
+    await user.click(await screen.findByRole("button", { name: /add transaction/i }));
+    await user.click(await screen.findByRole("button", { name: /找不到股票/ }));
+    expect(screen.getByRole("heading", { name: /^add asset$/i })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/^ticker$/i), "2330");
+    await user.type(screen.getByLabelText(/^name$/i), "台積電");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /^add asset$/i })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: /asset/i })).toHaveValue("99"));
   });
 
   it("shows an error state when the transaction list request fails", async () => {

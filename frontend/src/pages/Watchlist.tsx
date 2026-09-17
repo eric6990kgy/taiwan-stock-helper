@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddAssetModal } from "../components/AddAssetModal";
 import { Field, inputClass, PrimaryButton, SecondaryButton } from "../components/form";
 import { Modal } from "../components/Modal";
 import { QueryState } from "../components/QueryState";
@@ -134,6 +135,7 @@ function AddWatchlistModal({ onClose }: { onClose: () => void }) {
   const [entryConsideration, setEntryConsideration] = useState("");
   const [reviewDate, setReviewDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [showAddAsset, setShowAddAsset] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -170,9 +172,23 @@ function AddWatchlistModal({ onClose }: { onClose: () => void }) {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                className="mt-1 text-xs font-medium text-blue-600 hover:underline"
+                onClick={() => setShowAddAsset(true)}
+              >
+                找不到股票？新增一檔
+              </button>
             </Field>
           )}
         </QueryState>
+
+        {showAddAsset && (
+          <AddAssetModal
+            onClose={() => setShowAddAsset(false)}
+            onCreated={(asset) => setAssetId(String(asset.id))}
+          />
+        )}
 
         <Field label="Status">
           <select className={inputClass} value={status} onChange={(e) => setStatus(e.target.value as WatchlistStatus)}>

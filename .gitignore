@@ -3,6 +3,9 @@ backend/__pycache__/
 backend/**/__pycache__/
 backend/.pytest_cache/
 backend/investment_os.db
+backend/investment_os.db-wal
+backend/investment_os.db-shm
+backend/investment_os.db-journal
 backend/.env
 backend/logs/
 

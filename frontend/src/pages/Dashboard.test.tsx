@@ -22,9 +22,34 @@ describe("Dashboard", () => {
     await waitFor(() => expect(screen.getByText(/snapshot, not a time series/i)).toBeInTheDocument());
   });
 
-  it("shows the DEMO DATA badge", async () => {
+  it("shows the DEMO DATA badge when a holding's asset is demo data", async () => {
     renderWithProviders(<Dashboard />);
     expect(await screen.findByText(/demo data/i)).toBeInTheDocument();
+  });
+
+  it("does not show the DEMO DATA badge when every holding is real data", async () => {
+    server.use(
+      http.get(`${API_URL}/api/assets`, () =>
+        HttpResponse.json([
+          {
+            id: 1,
+            ticker: "3653",
+            name: "健策",
+            asset_type: "STOCK",
+            market: "TWSE",
+            currency: "TWD",
+            sector: "Technology",
+            industry: "Semiconductor Packaging",
+            valuation_method: "TRANSACTION_BASED",
+            is_demo_data: false,
+            needs_review: false,
+          },
+        ]),
+      ),
+    );
+    renderWithProviders(<Dashboard />);
+    await screen.findByText("3653");
+    expect(screen.queryByText(/demo data/i)).not.toBeInTheDocument();
   });
 
   it("renders holdings from the API in the table", async () => {

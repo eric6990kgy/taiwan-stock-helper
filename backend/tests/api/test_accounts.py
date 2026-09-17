@@ -44,3 +44,32 @@ def test_delete_account(client):
     resp = client.delete(f"/api/accounts/{created['id']}")
     assert resp.status_code == 204
     assert client.get(f"/api/accounts/{created['id']}").status_code == 404
+
+
+def test_delete_account_with_transactions_is_blocked(client):
+    """Account.transactions carries an ORM cascade="all, delete-orphan" --
+    unguarded, deleting the account would silently destroy every transaction
+    under it with no way back. The service layer must refuse instead."""
+    account = client.post("/api/accounts", json={"name": "Has Transactions", "account_type": "BROKERAGE", "currency": "TWD"}).json()
+    asset_id = client.get("/api/assets/3491").json()["id"]
+    txn = client.post(
+        "/api/transactions",
+        json={
+            "account_id": account["id"],
+            "asset_id": asset_id,
+            "date": "2026-01-10",
+            "type": "BUY",
+            "quantity": "10",
+            "price": "300",
+            "fee": "40",
+            "currency": "TWD",
+        },
+    ).json()
+
+    resp = client.delete(f"/api/accounts/{account['id']}")
+
+    assert resp.status_code == 400
+    assert "still has transactions" in resp.json()["detail"].lower()
+    # Neither the account nor its transaction was actually deleted.
+    assert client.get(f"/api/accounts/{account['id']}").status_code == 200
+    assert client.get(f"/api/transactions/{txn['id']}").status_code == 200

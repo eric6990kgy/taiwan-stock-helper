@@ -439,3 +439,22 @@ export interface MarketDataUpdateResult {
   latest_data_date: string | null;
   source: string;
 }
+
+// ---- CSV Import/Export -----------------------------------------------------
+
+/** A row the importer couldn't apply (unknown account, unsellable quantity,
+ * etc.) -- never silently dropped, always reported with a human-readable
+ * reason. Missing a required CSV column is a hard 400, not a skipped row. */
+export interface ImportSkippedRow {
+  row: number;
+  reason: string;
+}
+
+/** Unknown tickers are auto-created (STOCK/TWD/TRANSACTION_BASED) rather
+ * than rejected, and listed here so they can be reviewed/corrected --
+ * never silently assumed correct. */
+export interface ImportResult {
+  imported: number;
+  skipped: ImportSkippedRow[];
+  needs_review_tickers: string[];
+}

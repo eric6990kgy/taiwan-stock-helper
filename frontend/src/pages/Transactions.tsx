@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddAssetModal } from "../components/AddAssetModal";
 import { Field, inputClass, PrimaryButton, SecondaryButton } from "../components/form";
 import { Modal } from "../components/Modal";
 import { Money, Shares } from "../components/Money";
@@ -169,12 +170,17 @@ function AddTransactionModal({ onClose }: { onClose: () => void }) {
   const [tax, setTax] = useState("0");
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [showAddAsset, setShowAddAsset] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     if (!accountId || !assetId || !quantity || !price) {
       setFormError("Account, asset, quantity, and price are required.");
+      return;
+    }
+    if (Number(quantity) <= 0 || Number(price) <= 0) {
+      setFormError("Quantity and price must be greater than zero.");
       return;
     }
     try {
@@ -225,9 +231,23 @@ function AddTransactionModal({ onClose }: { onClose: () => void }) {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                className="mt-1 text-xs font-medium text-blue-600 hover:underline"
+                onClick={() => setShowAddAsset(true)}
+              >
+                找不到股票？新增一檔
+              </button>
             </Field>
           )}
         </QueryState>
+
+        {showAddAsset && (
+          <AddAssetModal
+            onClose={() => setShowAddAsset(false)}
+            onCreated={(asset) => setAssetId(String(asset.id))}
+          />
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Type">
