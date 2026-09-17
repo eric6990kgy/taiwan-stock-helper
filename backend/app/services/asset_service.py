@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
 from app.repositories.asset_repository import AssetRepository
+from app.repositories.transaction_repository import TransactionRepository
 from app.services.exceptions import DuplicateError, NotFoundError
 
 
@@ -10,6 +11,7 @@ class AssetService:
     def __init__(self, db: Session):
         self.db = db
         self.repo = AssetRepository(db)
+        self.transactions_repo = TransactionRepository(db)
 
     def get(self, asset_id: int) -> Asset:
         asset = self.repo.get(asset_id)
@@ -49,5 +51,16 @@ class AssetService:
 
     def delete(self, asset_id: int) -> None:
         asset = self.get(asset_id)
+        # Asset.transactions carries the same ORM-level `cascade="all,
+        # delete-orphan"` as Account.transactions (see AccountService.delete
+        # for the incident this pattern caused there) -- deleting an asset
+        # with real transaction history would otherwise silently destroy
+        # that history too. Financial transaction history must never be
+        # destroyed as a side effect of an unrelated action.
+        if self.transactions_repo.list(asset_id=asset_id, limit=1):
+            raise ValueError(
+                f"Cannot delete asset {asset_id!r}: it still has transactions. "
+                "Delete its transactions first if you really want to remove this asset."
+            )
         self.repo.delete(asset)
         self.db.commit()

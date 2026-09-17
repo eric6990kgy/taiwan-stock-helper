@@ -78,3 +78,34 @@ def test_delete_asset(client):
     ).json()
     resp = client.delete(f"/api/assets/{created['id']}")
     assert resp.status_code == 204
+
+
+def test_delete_asset_with_transactions_is_blocked(client):
+    """Asset.transactions carries the same ORM cascade="all, delete-orphan"
+    as Account.transactions -- unguarded, deleting the asset would silently
+    destroy every transaction against it. See test_accounts.py's equivalent
+    test for the incident this pattern caused on the account side."""
+    asset = client.post(
+        "/api/assets", json={"ticker": "6666", "name": "Has Transactions", "asset_type": "STOCK", "currency": "TWD"}
+    ).json()
+    account_id = client.get("/api/accounts").json()[0]["id"]
+    txn = client.post(
+        "/api/transactions",
+        json={
+            "account_id": account_id,
+            "asset_id": asset["id"],
+            "date": "2026-01-10",
+            "type": "BUY",
+            "quantity": "10",
+            "price": "300",
+            "fee": "40",
+            "currency": "TWD",
+        },
+    ).json()
+
+    resp = client.delete(f"/api/assets/{asset['id']}")
+
+    assert resp.status_code == 400
+    assert "still has transactions" in resp.json()["detail"].lower()
+    assert client.get(f"/api/assets/{asset['ticker']}").status_code == 200  # this route is keyed by ticker, not id
+    assert client.get(f"/api/transactions/{txn['id']}").status_code == 200
