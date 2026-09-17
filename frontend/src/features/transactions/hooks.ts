@@ -9,10 +9,22 @@ export function useAssets() {
   return useQuery({ queryKey: ["assets"], queryFn: assetsApi.list });
 }
 
-export function useCreateAsset() {
+/** Phase 11: preview a ticker's real FinMind company info before creating
+ * it. `enabled` is left to the caller (debounce first, don't fire on every
+ * keystroke). */
+export function useAssetLookup(ticker: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["asset-lookup", ticker],
+    queryFn: () => assetsApi.lookup(ticker),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useQuickCreateAsset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: assetsApi.create,
+    mutationFn: assetsApi.quickCreate,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
   });
 }

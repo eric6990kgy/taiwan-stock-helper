@@ -17,8 +17,10 @@ from app.services.account_service import AccountService
 from app.services.analytics_service import AnalyticsService
 from app.services.asset_service import AssetService
 from app.services.import_export_service import ImportExportService
+from app.services.journal_service import JournalService
 from app.services.market_data_service import MarketDataIngestionService
 from app.services.portfolio_service import PortfolioService
+from app.services.recommendation_outcome_service import RecommendationOutcomeService
 from app.services.recommendation_service import RecommendationService
 from app.services.research_service import ResearchService
 from app.services.screener_service import ScreenerService
@@ -89,6 +91,14 @@ def get_strategy_service(db: Session = Depends(get_db)) -> StrategyService:
 
 def get_recommendation_service(db: Session = Depends(get_db)) -> RecommendationService:
     return RecommendationService(db)
+
+
+def get_recommendation_outcome_service(db: Session = Depends(get_db)) -> RecommendationOutcomeService:
+    return RecommendationOutcomeService(db)
+
+
+def get_journal_service(db: Session = Depends(get_db)) -> JournalService:
+    return JournalService(db)
 
 
 def get_screener_service(

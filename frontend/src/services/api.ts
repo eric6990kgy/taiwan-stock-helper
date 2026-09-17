@@ -3,10 +3,11 @@ import type {
   AccountType,
   Allocation,
   Asset,
-  AssetType,
   Holding,
   ImportResult,
   InstitutionalFlow,
+  JournalCategory,
+  JournalEntry,
   MarginTrading,
   MarketDataUpdateResult,
   MonthlyRevenue,
@@ -15,7 +16,9 @@ import type {
   PortfolioSummary,
   PricePoint,
   Recommendation,
+  RecommendationOutcome,
   ResearchPage,
+  ReviewSummary,
   Risk,
   Score,
   ScreenerResult,
@@ -23,8 +26,8 @@ import type {
   StrategyVersion,
   TechnicalIndicators,
   Thesis,
+  TickerLookup,
   Transaction,
-  ValuationMethod,
   WatchlistEntry,
 } from "../types/api";
 
@@ -108,16 +111,9 @@ export const accountsApi = {
 export const assetsApi = {
   list: () => request<Asset[]>("/api/assets"),
   getByTicker: (ticker: string) => request<Asset>(`/api/assets/${encodeURIComponent(ticker)}`),
-  create: (body: {
-    ticker: string;
-    name: string;
-    asset_type: AssetType;
-    market?: string;
-    currency?: string;
-    sector?: string;
-    industry?: string;
-    valuation_method?: ValuationMethod;
-  }) => request<Asset>("/api/assets", { method: "POST", body: JSON.stringify(body) }),
+  lookup: (ticker: string) => request<TickerLookup>(`/api/assets/lookup/${encodeURIComponent(ticker)}`),
+  quickCreate: (ticker: string) =>
+    request<Asset>("/api/assets/quick-create", { method: "POST", body: JSON.stringify({ ticker }) }),
 };
 
 // ---- Transactions ---------------------------------------------------------------
@@ -271,4 +267,21 @@ export const importExportApi = {
     formData.append("file", file);
     return postForm<ImportResult>("/api/import/transactions", formData);
   },
+};
+
+// ---- Phase 10: review (複盤) + journal (日誌) --------------------------------
+
+export const reviewApi = {
+  summary: (action?: string) => request<ReviewSummary>(`/api/review/summary${qs({ action })}`),
+  outcomes: (action?: string) => request<RecommendationOutcome[]>(`/api/review/outcomes${qs({ action })}`),
+};
+
+export const journalApi = {
+  list: (params: { asset_id?: number; category?: JournalCategory; date_from?: string; date_to?: string } = {}) =>
+    request<JournalEntry[]>(`/api/journal${qs(params)}`),
+  create: (body: { entry_date?: string; category?: JournalCategory; asset_id?: number; body: string }) =>
+    request<JournalEntry>("/api/journal", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: number, body: Partial<{ entry_date: string; category: JournalCategory; asset_id: number; body: string }>) =>
+    request<JournalEntry>(`/api/journal/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  delete: (id: number) => request<void>(`/api/journal/${id}`, { method: "DELETE" }),
 };

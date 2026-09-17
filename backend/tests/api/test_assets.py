@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_list_assets_returns_seeded_assets(client):
     resp = client.get("/api/assets")
     assert resp.status_code == 200
@@ -78,6 +81,137 @@ def test_delete_asset(client):
     ).json()
     resp = client.delete(f"/api/assets/{created['id']}")
     assert resp.status_code == 204
+
+
+class _StubProvider:
+    """Phase 11: a minimal stand-in for FinMindProvider, implementing only
+    get_company_info/get_historical_prices (what quick-create actually
+    calls) -- same pattern as test_recommendations.py's/test_review.py's
+    StubProvider, scoped to just what this test file needs."""
+
+    def __init__(self):
+        self.company_info = {}
+        self.prices = {}
+
+    def get_company_info(self, ticker):
+        from app.providers.market_data_provider import AssetNotFoundError
+
+        if ticker not in self.company_info:
+            raise AssetNotFoundError(ticker)
+        return self.company_info[ticker]
+
+    def get_historical_prices(self, ticker, start=None, end=None):
+        return self.prices.get(ticker, [])
+
+    def get_valuation(self, ticker, on_date=None):
+        from app.providers.market_data_provider import AssetNotFoundError
+
+        raise AssetNotFoundError(ticker)
+
+    def get_fundamentals(self, ticker):
+        return []
+
+    def get_dividends(self, ticker, start=None, end=None):
+        return []
+
+    def get_institutional_flows(self, ticker, start=None, end=None):
+        return []
+
+    def get_margin_trading(self, ticker, start=None, end=None):
+        return []
+
+    def get_monthly_revenue(self, ticker):
+        return []
+
+    def get_quote(self, ticker):
+        raise NotImplementedError
+
+
+@pytest.fixture()
+def stub_provider(client):
+    from app.api.deps import get_finmind_provider
+    from app.main import app
+
+    provider = _StubProvider()
+
+    def override():
+        yield provider
+
+    app.dependency_overrides[get_finmind_provider] = override
+    yield provider
+    app.dependency_overrides.pop(get_finmind_provider, None)
+
+
+def _company_info(ticker: str, name: str, market: str = "TWSE") -> "CompanyInfoDTO":
+    from app.providers.market_data_provider import CompanyInfoDTO
+
+    return CompanyInfoDTO(
+        ticker=ticker, name=name, asset_type="STOCK", market=market, sector=None, industry=None, is_demo_data=False
+    )
+
+
+def _price_point(d, close: str):
+    from decimal import Decimal
+
+    from app.providers.market_data_provider import PricePointDTO
+
+    c = Decimal(close)
+    return PricePointDTO(date=d, open=c, high=c, low=c, close=c, volume=1000, source="FINMIND")
+
+
+def test_lookup_ticker_returns_finmind_company_info(client, stub_provider):
+    stub_provider.company_info["2330"] = _company_info("2330", "台積電")
+
+    resp = client.get("/api/assets/lookup/2330")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {
+        "ticker": "2330", "name": "台積電", "asset_type": "STOCK", "market": "TWSE",
+        "sector": None, "industry": None,
+    }
+
+
+def test_lookup_unknown_ticker_404(client, stub_provider):
+    resp = client.get("/api/assets/lookup/NOPE")
+    assert resp.status_code == 404
+
+
+def test_quick_create_creates_asset_with_looked_up_fields(client, stub_provider):
+    stub_provider.company_info["2330"] = _company_info("2330", "台積電")
+
+    resp = client.post("/api/assets/quick-create", json={"ticker": "2330"})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["ticker"] == "2330"
+    assert body["name"] == "台積電"
+    assert body["market"] == "TWSE"
+    assert body["valuation_method"] == "TRANSACTION_BASED"
+
+
+def test_quick_create_backfills_price_history_immediately(client, stub_provider):
+    from datetime import date
+
+    stub_provider.company_info["2330"] = _company_info("2330", "台積電")
+    stub_provider.prices["2330"] = [_price_point(date(2026, 9, 15), "600")]
+
+    created = client.post("/api/assets/quick-create", json={"ticker": "2330"}).json()
+
+    prices = client.get(f"/api/prices/2330").json()
+    assert len(prices) == 1
+    assert prices[0]["close"] == "600.0000"
+
+
+def test_quick_create_unknown_ticker_404(client, stub_provider):
+    resp = client.post("/api/assets/quick-create", json={"ticker": "NOPE"})
+    assert resp.status_code == 404
+
+
+def test_quick_create_duplicate_ticker_returns_409(client, stub_provider):
+    stub_provider.company_info["3653"] = _company_info("3653", "健策")
+    resp = client.post("/api/assets/quick-create", json={"ticker": "3653"})
+    assert resp.status_code == 409
 
 
 def test_delete_asset_with_transactions_is_blocked(client):

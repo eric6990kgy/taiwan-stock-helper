@@ -143,6 +143,7 @@ class RecommendationService:
                 risk_block_reason=risk_block_reason,
                 composite_score=result.composite_score,
                 regime=result.regime,
+                as_of_date=result.as_of,
             )
             self.db.add(recommendation)
             self.db.flush()

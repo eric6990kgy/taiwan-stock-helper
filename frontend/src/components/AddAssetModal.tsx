@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { useCreateAsset } from "../features/transactions/hooks";
+import { useEffect, useState } from "react";
+import { useAssetLookup, useQuickCreateAsset } from "../features/transactions/hooks";
 import { ApiRequestError } from "../services/api";
-import type { Asset, AssetType, ValuationMethod } from "../types/api";
+import type { Asset } from "../types/api";
 import { Field, PrimaryButton, SecondaryButton, inputClass } from "./form";
 import { Modal } from "./Modal";
 
-const ASSET_TYPES: AssetType[] = ["STOCK", "ETF", "CASH", "FUND"];
-const VALUATION_METHODS: ValuationMethod[] = ["TRANSACTION_BASED", "MANUAL_MARKET_VALUE"];
+const DEBOUNCE_MS = 500;
 
 interface AddAssetModalProps {
   onClose: () => void;
@@ -16,37 +15,31 @@ interface AddAssetModalProps {
   onCreated?: (asset: Asset) => void;
 }
 
+/** Phase 11: "just type the ticker" -- name/market/sector are looked up
+ * from FinMind and previewed before the user commits, instead of asking
+ * them to fill in seven fields by hand. */
 export function AddAssetModal({ onClose, onCreated }: AddAssetModalProps) {
-  const createAsset = useCreateAsset();
-
   const [ticker, setTicker] = useState("");
-  const [name, setName] = useState("");
-  const [assetType, setAssetType] = useState<AssetType>("STOCK");
-  const [market, setMarket] = useState("");
-  const [currency, setCurrency] = useState("TWD");
-  const [sector, setSector] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [valuationMethod, setValuationMethod] = useState<ValuationMethod>("TRANSACTION_BASED");
+  const [debouncedTicker, setDebouncedTicker] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const quickCreate = useQuickCreateAsset();
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedTicker(ticker.trim().toUpperCase()), DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [ticker]);
+
+  const lookup = useAssetLookup(debouncedTicker, debouncedTicker.length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    if (!ticker.trim() || !name.trim()) {
-      setFormError("Ticker and name are required.");
+    if (!lookup.data) {
+      setFormError("請先輸入有效的股票代碼。");
       return;
     }
     try {
-      const asset = await createAsset.mutateAsync({
-        ticker: ticker.trim(),
-        name: name.trim(),
-        asset_type: assetType,
-        market: market.trim() || undefined,
-        currency: currency.trim() || undefined,
-        sector: sector.trim() || undefined,
-        industry: industry.trim() || undefined,
-        valuation_method: valuationMethod,
-      });
+      const asset = await quickCreate.mutateAsync(lookup.data.ticker);
       onCreated?.(asset);
       onClose();
     } catch (err) {
@@ -61,53 +54,24 @@ export function AddAssetModal({ onClose, onCreated }: AddAssetModalProps) {
   return (
     <Modal title="Add Asset" onClose={onClose}>
       <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
-        <Field label="Ticker">
-          <input className={inputClass} value={ticker} onChange={(e) => setTicker(e.target.value)} required />
-        </Field>
-
-        <Field label="Name">
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required />
-        </Field>
-
-        <Field label="Asset Type">
-          <select className={inputClass} value={assetType} onChange={(e) => setAssetType(e.target.value as AssetType)}>
-            {ASSET_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Market">
-          <input className={inputClass} placeholder="TWSE / TPEx" value={market} onChange={(e) => setMarket(e.target.value)} />
-        </Field>
-
-        <Field label="Currency">
-          <input className={inputClass} value={currency} onChange={(e) => setCurrency(e.target.value)} />
-        </Field>
-
-        <Field label="Sector">
-          <input className={inputClass} value={sector} onChange={(e) => setSector(e.target.value)} />
-        </Field>
-
-        <Field label="Industry">
-          <input className={inputClass} value={industry} onChange={(e) => setIndustry(e.target.value)} />
-        </Field>
-
-        <Field label="Valuation Method">
-          <select
+        <Field label="股票代碼">
+          <input
             className={inputClass}
-            value={valuationMethod}
-            onChange={(e) => setValuationMethod(e.target.value as ValuationMethod)}
-          >
-            {VALUATION_METHODS.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+            placeholder="例如 2330"
+            autoFocus
+            required
+          />
         </Field>
+
+        {debouncedTicker && lookup.isLoading && <p className="text-sm text-slate-400">查詢中…</p>}
+        {debouncedTicker && lookup.isError && <p className="text-sm text-red-600">查無此股票代碼。</p>}
+        {lookup.data && (
+          <p className="text-sm text-green-600">
+            ✓ 已自動查到：{lookup.data.name}（{lookup.data.market ?? "—"}）
+          </p>
+        )}
 
         {formError && <p className="text-sm text-red-600">{formError}</p>}
 
@@ -115,8 +79,8 @@ export function AddAssetModal({ onClose, onCreated }: AddAssetModalProps) {
           <SecondaryButton type="button" onClick={onClose}>
             Cancel
           </SecondaryButton>
-          <PrimaryButton type="submit" disabled={createAsset.isPending}>
-            {createAsset.isPending ? "Saving…" : "Add"}
+          <PrimaryButton type="submit" disabled={!lookup.data || quickCreate.isPending}>
+            {quickCreate.isPending ? "Saving…" : "Add"}
           </PrimaryButton>
         </div>
       </form>

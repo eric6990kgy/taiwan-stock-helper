@@ -699,3 +699,38 @@ def test_line_alert_sent_only_when_signal_status_actually_changes(db_session):
     service.line_notifier = FakeLineNotifier()
     service.update_all(tickers=["3653"])
     assert service.line_notifier.messages == []
+
+
+# ---- Recommendation outcome scoring (Phase 10) -----------------------------
+
+
+def test_update_all_retroactively_scores_a_past_recommendation_once_due(db_session):
+    """update_all() now also runs RecommendationOutcomeService after the
+    daily scan (best-effort, reads only the local DB already written this
+    run -- never a FinMind call, so nothing here can raise RateLimitError/
+    ProviderError). A recommendation created on one run gets scored on a
+    later run once enough future price history exists."""
+    from app.models.recommendation_outcome import RecommendationOutcome
+
+    asset = make_asset(db_session)
+    add_to_watchlist(db_session, asset)
+    provider = FakeProvider()
+
+    # Baseline (NEUTRAL, flat).
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close="100") for i in range(65)]
+    MarketDataIngestionService(db_session, provider).update_all(tickers=["3653"])
+
+    # Uptrend -- creates a CONSIDER_INCREASE recommendation, not yet scoreable.
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(65)]
+    MarketDataIngestionService(db_session, provider).update_all(tickers=["3653"])
+    assert db_session.query(RecommendationOutcome).count() == 0
+
+    # 5+ more trading days of the same uptrend -- the earlier recommendation
+    # is now old enough to score.
+    provider.prices["3653"] = [price_point(date(2026, 7, 1) + timedelta(days=i), close=str(100 + i)) for i in range(72)]
+    MarketDataIngestionService(db_session, provider).update_all(tickers=["3653"])
+
+    outcomes = db_session.query(RecommendationOutcome).all()
+    assert len(outcomes) == 1
+    assert outcomes[0].actual_direction == "BULLISH"
+    assert outcomes[0].hit is True

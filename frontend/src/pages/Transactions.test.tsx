@@ -4,7 +4,7 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
 import { renderWithProviders } from "../test/renderWithProviders";
-import type { Asset, AssetType, ValuationMethod } from "../types/api";
+import type { Asset } from "../types/api";
 import { Transactions } from "./Transactions";
 
 const API_URL = "http://127.0.0.1:8010";
@@ -84,27 +84,28 @@ describe("Transactions page", () => {
     ];
     server.use(
       http.get(`${API_URL}/api/assets`, () => HttpResponse.json(assets)),
-      http.post(`${API_URL}/api/assets`, async ({ request }) => {
-        const body = (await request.json()) as {
-          ticker: string;
-          name: string;
-          asset_type: AssetType;
-          market?: string;
-          currency?: string;
-          sector?: string;
-          industry?: string;
-          valuation_method?: ValuationMethod;
-        };
+      http.get(`${API_URL}/api/assets/lookup/:ticker`, ({ params }) =>
+        HttpResponse.json({
+          ticker: params.ticker,
+          name: "台積電",
+          asset_type: "STOCK",
+          market: "TWSE",
+          sector: null,
+          industry: null,
+        }),
+      ),
+      http.post(`${API_URL}/api/assets/quick-create`, async ({ request }) => {
+        const body = (await request.json()) as { ticker: string };
         const created: Asset = {
           id: 99,
           ticker: body.ticker,
-          name: body.name,
-          asset_type: body.asset_type,
-          market: body.market ?? null,
-          currency: body.currency ?? "TWD",
-          sector: body.sector ?? null,
-          industry: body.industry ?? null,
-          valuation_method: body.valuation_method ?? "TRANSACTION_BASED",
+          name: "台積電",
+          asset_type: "STOCK",
+          market: "TWSE",
+          currency: "TWD",
+          sector: null,
+          industry: null,
+          valuation_method: "TRANSACTION_BASED",
           is_demo_data: false,
           needs_review: false,
         };
@@ -118,8 +119,8 @@ describe("Transactions page", () => {
     await user.click(await screen.findByRole("button", { name: /找不到股票/ }));
     expect(screen.getByRole("heading", { name: /^add asset$/i })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/^ticker$/i), "2330");
-    await user.type(screen.getByLabelText(/^name$/i), "台積電");
+    await user.type(screen.getByLabelText(/股票代碼/), "2330");
+    await screen.findByText(/已自動查到：台積電/, {}, { timeout: 2000 });
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: /^add asset$/i })).not.toBeInTheDocument());

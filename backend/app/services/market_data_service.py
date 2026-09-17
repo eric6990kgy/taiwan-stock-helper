@@ -27,6 +27,7 @@ from app.repositories.price_repository import PriceRepository
 from app.schemas.market_data import MarketDataError, MarketDataUpdateResult
 from app.services.line_notifier import LineNotifier, LineNotifyError, format_recommendation_alert
 from app.services.market_data_validation import PriceValidationError, validate_price_point
+from app.services.recommendation_outcome_service import RecommendationOutcomeService
 from app.services.recommendation_service import RecommendationService
 from app.services.scoring_service import TAIEX_TICKER, ScoringService
 
@@ -58,6 +59,7 @@ class MarketDataIngestionService:
         self.monthly_revenue_repo = MonthlyRevenueRepository(db)
         self.scoring_service = ScoringService(db)
         self.recommendation_service = RecommendationService(db)
+        self.recommendation_outcome_service = RecommendationOutcomeService(db)
         self.line_notifier = LineNotifier()
 
     def close(self) -> None:
@@ -210,6 +212,13 @@ class MarketDataIngestionService:
                 self.line_notifier.broadcast(message)
             except LineNotifyError as exc:
                 validation_warnings.append(MarketDataError(ticker=outcome.ticker, reason=f"LINE alert not sent: {exc}"))
+
+        # Phase 10: score every past Recommendation that's now old enough
+        # to check against real price history. Reads only the local DB
+        # (price_history/recommendations already written above), same as
+        # the scan itself -- nothing here calls FinMind, so there's no
+        # RateLimitError/ProviderError class of failure to guard against.
+        self.recommendation_outcome_service.score_due_outcomes()
 
         self.db.commit()
 

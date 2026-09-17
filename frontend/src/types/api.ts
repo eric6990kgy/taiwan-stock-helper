@@ -37,6 +37,17 @@ export interface Asset {
   needs_review: boolean;
 }
 
+/** A FinMind company-info preview (Phase 11) shown before the user commits
+ * to creating the asset -- not itself a persisted resource. */
+export interface TickerLookup {
+  ticker: string;
+  name: string;
+  asset_type: AssetType;
+  market: string | null;
+  sector: string | null;
+  industry: string | null;
+}
+
 export interface Transaction {
   id: number;
   account_id: number;
@@ -438,6 +449,57 @@ export interface MarketDataUpdateResult {
   validation_warnings: MarketDataUpdateError[];
   latest_data_date: string | null;
   source: string;
+}
+
+// ---- Phase 10: recommendation outcome tracking, review (複盤), journal (日誌) ---
+
+/** `hit_rate` is `null` (never a fabricated percentage) when `n === 0` --
+ * same convention as BacktestSummary/StrategyVersion.backtest_hit_rate. */
+export interface ReviewSummary {
+  hits: number;
+  n: number;
+  hit_rate: string | null;
+}
+
+/** Ground-truth label for a past Recommendation (Phase 10) -- did price
+ * actually move the direction `call` claimed, `horizon_trading_days`
+ * trading days later? Only ever exists for CONSIDER_INCREASE/
+ * CONSIDER_DECREASE recommendations (WATCH makes no directional claim). */
+export interface RecommendationOutcome {
+  id: number;
+  recommendation_id: number;
+  ticker: string;
+  asset_name: string;
+  action: RecommendationAction;
+  call: SignalStatus;
+  actual_direction: SignalStatus;
+  hit: boolean;
+  horizon_trading_days: number;
+  as_of_date: string;
+  outcome_date: string;
+  from_close: string;
+  to_close: string;
+  risk_blocked: boolean;
+  computed_at: string;
+}
+
+export type JournalCategory = "BUY_REASON" | "SELL_REASON" | "OBSERVATION" | "REVIEW" | "OTHER";
+
+/** A dated, freeform note (投資日誌) -- append-only history, unlike
+ * InvestmentThesis's one-row-per-asset upsert. Both asset/recommendation
+ * links are optional: a general note needs neither. `category` is a fixed
+ * tag (not free text) so entries stay filterable as the log grows. */
+export interface JournalEntry {
+  id: number;
+  entry_date: string;
+  category: JournalCategory;
+  asset_id: number | null;
+  ticker: string | null;
+  asset_name: string | null;
+  recommendation_id: number | null;
+  body: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---- CSV Import/Export -----------------------------------------------------

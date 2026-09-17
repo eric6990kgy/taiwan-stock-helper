@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.recommendation import Recommendation
+from app.models.recommendation_outcome import RecommendationOutcome
 
 
 class RecommendationRepository:
@@ -15,6 +16,22 @@ class RecommendationRepository:
         self.db.add(row)
         self.db.flush()
         return row
+
+    def list_unscored(self) -> list[Recommendation]:
+        """Every WATCH-excluded recommendation that doesn't have a
+        RecommendationOutcome row yet (Phase 10) -- WATCH is never scored
+        since it makes no directional claim (see ACTION_BY_STATUS).
+        Defined before list() below: once a method literally named `list`
+        is bound in this class's namespace, it shadows the builtin for
+        every `list[...]` annotation that follows it in the class body
+        (same gotcha documented on TransactionRepository.list_all)."""
+        stmt = (
+            select(Recommendation)
+            .outerjoin(RecommendationOutcome, RecommendationOutcome.recommendation_id == Recommendation.id)
+            .where(Recommendation.action != "WATCH", RecommendationOutcome.id.is_(None))
+            .order_by(Recommendation.created_at)
+        )
+        return list(self.db.execute(stmt).scalars().all())
 
     def list(self, since: datetime | None = None) -> list[Recommendation]:
         """Newest first. `since` filters to recommendations created on or

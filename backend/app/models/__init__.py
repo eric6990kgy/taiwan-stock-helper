@@ -17,6 +17,8 @@ from app.models.strategy_version import StrategyVersion
 from app.models.signal_snapshot import SignalSnapshot
 from app.models.recommendation import Recommendation
 from app.models.pending_strategy_change import PendingStrategyChange
+from app.models.recommendation_outcome import RecommendationOutcome
+from app.models.journal_entry import JournalEntry
 
 __all__ = [
     "Base",
@@ -38,4 +40,6 @@ __all__ = [
     "SignalSnapshot",
     "Recommendation",
     "PendingStrategyChange",
+    "RecommendationOutcome",
+    "JournalEntry",
 ]

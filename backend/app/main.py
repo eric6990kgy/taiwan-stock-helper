@@ -14,10 +14,12 @@ from app.api.routes import (
     analytics,
     assets,
     import_export,
+    journal,
     market_data,
     portfolio,
     recommendations,
     research,
+    review,
     screener,
     strategy,
     thesis,
@@ -93,6 +95,8 @@ for router in (
     market_data.router,
     recommendations.router,
     strategy.router,
+    review.router,
+    journal.router,
 ):
     app.include_router(router)
 

@@ -1,4 +1,4 @@
-import type { RecommendationAction, Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
+import type { JournalCategory, RecommendationAction, Score, SignalStatus, ThesisStatus, WatchlistStatus } from "../types/api";
 
 export function DemoDataBadge() {
   return (
@@ -31,6 +31,32 @@ export function WatchlistStatusBadge({ status }: { status: WatchlistStatus }) {
     </span>
   );
 }
+
+const JOURNAL_CATEGORY_LABELS: Record<JournalCategory, string> = {
+  BUY_REASON: "買入理由",
+  SELL_REASON: "賣出理由",
+  OBSERVATION: "觀察",
+  REVIEW: "檢討",
+  OTHER: "其他",
+};
+
+const JOURNAL_CATEGORY_STYLES: Record<JournalCategory, string> = {
+  BUY_REASON: "bg-green-50 text-green-700 ring-green-200",
+  SELL_REASON: "bg-red-50 text-red-600 ring-red-200",
+  OBSERVATION: "bg-blue-50 text-blue-700 ring-blue-200",
+  REVIEW: "bg-amber-50 text-amber-700 ring-amber-200",
+  OTHER: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+export function JournalCategoryBadge({ category }: { category: JournalCategory }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${JOURNAL_CATEGORY_STYLES[category]}`}>
+      {JOURNAL_CATEGORY_LABELS[category]}
+    </span>
+  );
+}
+
+export { JOURNAL_CATEGORY_LABELS };
 
 const THESIS_STATUS_STYLES: Record<ThesisStatus, string> = {
   INTACT: "bg-green-50 text-green-700 ring-green-200",
@@ -106,6 +132,21 @@ export function ActionBadge({ action }: { action: RecommendationAction }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${ACTION_STYLES[action]}`}>
       {ACTION_LABELS[action]}
+    </span>
+  );
+}
+
+/** Whether a scored RecommendationOutcome's call turned out right (Phase
+ * 10) -- a ground-truth label, not a live reading, so it's styled
+ * distinctly from SignalStatusBadge even though it also uses green/red. */
+export function HitMissBadge({ hit }: { hit: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${
+        hit ? "bg-green-50 text-green-700 ring-green-200" : "bg-red-50 text-red-600 ring-red-200"
+      }`}
+    >
+      {hit ? "Hit" : "Miss"}
     </span>
   );
 }

@@ -45,13 +45,45 @@ class BacktestResult:
         return None if self.n == 0 else Decimal(self.hits) / Decimal(self.n)
 
 
-def _classify_direction(from_close: Decimal, to_close: Decimal, deadzone_pct: Decimal) -> str:
+def classify_direction(from_close: Decimal, to_close: Decimal, deadzone_pct: Decimal) -> str:
+    """BULLISH/BEARISH/NEUTRAL classification of a price move past a
+    deadzone -- public (Phase 10) so both the aggregate walk-forward
+    backtest below and a single-event outcome score (score_signal_outcome)
+    share the exact same look-ahead-safe methodology instead of each
+    reimplementing the comparison."""
     change_pct = (to_close - from_close) / from_close * Decimal(100)
     if change_pct > deadzone_pct:
         return "BULLISH"
     if change_pct < -deadzone_pct:
         return "BEARISH"
     return "NEUTRAL"
+
+
+@dataclass(frozen=True)
+class SignalOutcome:
+    """The scored outcome of one single BULLISH/BEARISH call (Phase 10) --
+    as opposed to BacktestResult's aggregate over many calls."""
+
+    call: str
+    actual: str
+    hit: bool
+
+
+def score_signal_outcome(
+    call: str,
+    from_close: Decimal,
+    to_close: Decimal,
+    deadzone_pct: Decimal = DEFAULT_DEADZONE_PCT,
+) -> SignalOutcome:
+    """Score one recommendation's directional call (`call`, the signal
+    engine's BULLISH/BEARISH `new_status` at the time it fired) against
+    what the price actually did between `from_close` and `to_close` --
+    used by RecommendationOutcomeService to label past Recommendation rows
+    with ground truth, the same deadzone rule walk_forward_hit_rate uses
+    below, just applied to one already-known event instead of a replayed
+    series."""
+    actual = classify_direction(from_close, to_close, deadzone_pct)
+    return SignalOutcome(call=call, actual=actual, hit=call == actual)
 
 
 def walk_forward_hit_rate(
@@ -84,9 +116,9 @@ def walk_forward_hit_rate(
         if status == "UNAVAILABLE" or status == "NEUTRAL":
             continue
 
-        actual = _classify_direction(points[i].close, points[i + horizon].close, deadzone_pct)
+        outcome = score_signal_outcome(status, points[i].close, points[i + horizon].close, deadzone_pct)
         calls += 1
-        if status == actual:
+        if outcome.hit:
             hits += 1
 
     return BacktestResult(hits=hits, n=calls, horizon=horizon, deadzone_pct=deadzone_pct)

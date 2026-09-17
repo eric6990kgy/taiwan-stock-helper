@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date as date_, datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -38,8 +38,15 @@ class Recommendation(Base):
     # the underlying data changes" rationale as triggered_signals above.
     composite_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2), nullable=True)
     regime: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # The real trading date the signal was computed from (SignalResult.as_of)
+    # -- NOT the same as created_at, which is just whenever "Update Market
+    # Data" happened to run (Phase 10). Nullable because rows created before
+    # this column existed have no value; RecommendationOutcomeService falls
+    # back to the nearest price_history date at-or-before created_at for those.
+    as_of_date: Mapped[date_ | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     asset: Mapped["Asset"] = relationship(back_populates="recommendations")
+    outcome: Mapped["RecommendationOutcome"] = relationship(back_populates="recommendation", uselist=False)
 
     __table_args__ = (CheckConstraint(f"action IN {RECOMMENDATION_ACTIONS}", name="ck_recommendations_action"),)

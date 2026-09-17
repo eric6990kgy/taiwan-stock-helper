@@ -105,19 +105,31 @@ export const handlers = [
   http.post(`${API_URL}/api/transactions`, () =>
     HttpResponse.json({ detail: "Cannot sell 999 units of asset 4: only 3.0000 available." }, { status: 400 }),
   ),
-  http.post(`${API_URL}/api/assets`, async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>;
+  http.get(`${API_URL}/api/assets/lookup/:ticker`, ({ params }) => {
+    const ticker = params.ticker as string;
+    if (ticker === "NOPE") return HttpResponse.json({ detail: "not found" }, { status: 404 });
+    return HttpResponse.json({
+      ticker,
+      name: "台積電",
+      asset_type: "STOCK",
+      market: "TWSE",
+      sector: null,
+      industry: null,
+    });
+  }),
+  http.post(`${API_URL}/api/assets/quick-create`, async ({ request }) => {
+    const body = (await request.json()) as { ticker: string };
     return HttpResponse.json(
       {
         id: 99,
         ticker: body.ticker,
-        name: body.name,
-        asset_type: body.asset_type,
-        market: body.market ?? null,
-        currency: body.currency ?? "TWD",
-        sector: body.sector ?? null,
-        industry: body.industry ?? null,
-        valuation_method: body.valuation_method ?? "TRANSACTION_BASED",
+        name: "台積電",
+        asset_type: "STOCK",
+        market: "TWSE",
+        currency: "TWD",
+        sector: null,
+        industry: null,
+        valuation_method: "TRANSACTION_BASED",
         is_demo_data: false,
         needs_review: false,
       },
@@ -151,4 +163,41 @@ export const handlers = [
       source: "FINMIND",
     }),
   ),
+  http.get(`${API_URL}/api/review/summary`, () => HttpResponse.json({ hits: 0, n: 0, hit_rate: null })),
+  http.get(`${API_URL}/api/review/outcomes`, () => HttpResponse.json([])),
+  http.get(`${API_URL}/api/journal`, () => HttpResponse.json([])),
+  http.post(`${API_URL}/api/journal`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      {
+        id: 1,
+        entry_date: body.entry_date,
+        category: body.category ?? "OBSERVATION",
+        asset_id: body.asset_id ?? null,
+        ticker: body.asset_id ? "3653" : null,
+        asset_name: body.asset_id ? "健策" : null,
+        recommendation_id: null,
+        body: body.body,
+        created_at: "2026-01-01T00:00:00",
+        updated_at: "2026-01-01T00:00:00",
+      },
+      { status: 201 },
+    );
+  }),
+  http.put(`${API_URL}/api/journal/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      id: Number(params.id),
+      entry_date: body.entry_date ?? "2026-01-01",
+      category: body.category ?? "OBSERVATION",
+      asset_id: null,
+      ticker: null,
+      asset_name: null,
+      recommendation_id: null,
+      body: body.body ?? "",
+      created_at: "2026-01-01T00:00:00",
+      updated_at: "2026-01-01T00:00:00",
+    });
+  }),
+  http.delete(`${API_URL}/api/journal/:id`, () => new HttpResponse(null, { status: 204 })),
 ];

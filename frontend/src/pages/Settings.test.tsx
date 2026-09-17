@@ -212,26 +212,40 @@ describe("Settings page — Accounts", () => {
 });
 
 describe("Settings page — Assets", () => {
-  it("adds a new asset", async () => {
+  it("adds a new asset by ticker, auto-filling the looked-up name", async () => {
     const user = userEvent.setup();
     renderWithProviders(<Settings />);
 
     await user.click(await screen.findByRole("button", { name: /add asset/i }));
-    await user.type(screen.getByLabelText(/^ticker$/i), "2330");
-    await user.type(screen.getByLabelText(/^name$/i), "台積電");
+    await user.type(screen.getByLabelText(/股票代碼/), "2330");
+
+    expect(await screen.findByText(/已自動查到：台積電/, {}, { timeout: 2000 })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: /^add asset$/i })).not.toBeInTheDocument());
   });
 
-  it("shows a friendly message for a duplicate ticker (409)", async () => {
+  it("shows a not-found message for an unknown ticker instead of letting the user add it", async () => {
     const user = userEvent.setup();
-    server.use(http.post(`${API_URL}/api/assets`, () => HttpResponse.json({ detail: "ticker exists" }, { status: 409 })));
     renderWithProviders(<Settings />);
 
     await user.click(await screen.findByRole("button", { name: /add asset/i }));
-    await user.type(screen.getByLabelText(/^ticker$/i), "3653");
-    await user.type(screen.getByLabelText(/^name$/i), "健策");
+    await user.type(screen.getByLabelText(/股票代碼/), "NOPE");
+
+    expect(await screen.findByText(/查無此股票代碼/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^add$/i })).toBeDisabled();
+  });
+
+  it("shows a friendly message for a duplicate ticker (409)", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${API_URL}/api/assets/quick-create`, () => HttpResponse.json({ detail: "ticker exists" }, { status: 409 })),
+    );
+    renderWithProviders(<Settings />);
+
+    await user.click(await screen.findByRole("button", { name: /add asset/i }));
+    await user.type(screen.getByLabelText(/股票代碼/), "3653");
+    await screen.findByText(/已自動查到/, {}, { timeout: 2000 });
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     expect(await screen.findByText(/已存在/)).toBeInTheDocument();

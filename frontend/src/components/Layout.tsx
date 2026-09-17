@@ -8,6 +8,8 @@ const NAV_ITEMS = [
   { to: "/watchlist", label: "Watchlist" },
   { to: "/recommendations", label: "Recommendations" },
   { to: "/strategy", label: "Strategy" },
+  { to: "/review", label: "Review" },
+  { to: "/journal", label: "Journal" },
   { to: "/settings", label: "Settings" },
 ];
 

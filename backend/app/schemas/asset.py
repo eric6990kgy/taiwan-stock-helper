@@ -40,3 +40,22 @@ class AssetRead(BaseModel):
     valuation_method: str
     is_demo_data: bool
     needs_review: bool
+
+
+class QuickCreateAsset(BaseModel):
+    """Phase 11: the only input the user should have to give -- everything
+    else is looked up from FinMind (see AssetService.quick_create)."""
+
+    ticker: str = Field(min_length=1, max_length=30)
+
+
+class TickerLookupRead(BaseModel):
+    """A FinMind company-info preview shown before the user commits to
+    creating the asset -- not itself a persisted resource."""
+
+    ticker: str
+    name: str
+    asset_type: str
+    market: str | None
+    sector: str | None
+    industry: str | None
